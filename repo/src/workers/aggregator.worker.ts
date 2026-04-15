@@ -5,19 +5,11 @@
  *
  * Responsibilities:
  *  1. Receive `event-appended` notifications from the main thread.
- *  2. Maintain a 10-minute sliding window → real-time KPI metrics.
+ *  2. Maintain a sliding window → real-time KPI metrics.
  *  3. Coalesce KPI updates at ≤ 250 ms cadence.
  *  4. Trigger daily rollup on first open past local midnight.
  *  5. Emit `kpi-alert` when configurable thresholds are crossed.
  */
-
-interface TelemetryEvent {
-  id: string;
-  type: string;
-  at: number;
-  workspaceId: string;
-  rolledUp: boolean;
-}
 
 interface KpiSnapshot {
   notesPerMinute: number;
@@ -27,85 +19,255 @@ interface KpiSnapshot {
   computedAt: number;
 }
 
+/** Lightweight in-memory tuple stored in the ring buffer */
+interface BufferEntry {
+  type: string;
+  at: number;
+  profileId?: string;
+}
+
 type MainToWorker =
   | { kind: 'boot'; workspaceId: string; now: number }
-  | { kind: 'event-appended'; id: string };
+  | { kind: 'event-appended'; id: string; type: string; workspaceId: string; profileId?: string };
 
-const WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const RING_MAX = 5000;
 const COALESCE_MS = 250;
-const THRESHOLDS: Record<string, { metric: keyof KpiSnapshot; threshold: number; direction: 'above' | 'below' }> = {
-  highNoteRate:      { metric: 'notesPerMinute',       threshold: 50,  direction: 'above' },
-  unresolvedRequests: { metric: 'unresolvedRequests',    threshold: 10,  direction: 'above' },
-};
+const WINDOW_1_MIN = 60_000;
+const WINDOW_5_MIN = 5 * 60_000;
+const WINDOW_10_MIN = 10 * 60_000;
 
-let workspaceId = '';
-let events: TelemetryEvent[] = [];
+const NOTE_RATE_THRESHOLD = 20;
+
+let currentWorkspaceId = '';
+let ringBuffer: BufferEntry[] = [];
 let pendingUpdate = false;
 let lastMetrics: Partial<KpiSnapshot> = {};
+
+// ─── IDB helper ─────────────────────────────────────────────────────────────
+
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('secureroom', 1);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// ─── Message handling ────────────────────────────────────────────────────────
 
 addEventListener('message', (ev: MessageEvent<MainToWorker>) => {
   const data = ev.data;
 
   if (data.kind === 'boot') {
-    workspaceId = data.workspaceId;
+    currentWorkspaceId = data.workspaceId;
+    checkYesterdayRollup().catch(err => console.error('[worker] boot rollup error', err));
+    setTimeout(checkMidnight, msUntilMidnight());
     return;
   }
 
   if (data.kind === 'event-appended') {
-    // Stub: in a real implementation we'd fetch the event from IDB via the
-    // IndexedDB-in-worker API. Here we just bump note count heuristically.
-    events.push({ id: data.id, type: 'unknown', at: Date.now(), workspaceId, rolledUp: false });
+    // Push to ring buffer, evict oldest if over capacity
+    const entry: BufferEntry = {
+      type: data.type,
+      at: Date.now(),
+      profileId: data.profileId,
+    };
+    ringBuffer.push(entry);
+    if (ringBuffer.length > RING_MAX) {
+      ringBuffer.shift();
+    }
     scheduleUpdate();
   }
 });
+
+// ─── Midnight scheduler ──────────────────────────────────────────────────────
+
+function msUntilMidnight(): number {
+  const now = new Date();
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+  return midnight.getTime() - now.getTime();
+}
+
+function checkMidnight(): void {
+  const yesterday = dateStrOffset(-1);
+  doRollup(yesterday).catch(err => console.error('[worker] midnight rollup error', err));
+  // Schedule next midnight check
+  setTimeout(checkMidnight, msUntilMidnight());
+}
+
+async function checkYesterdayRollup(): Promise<void> {
+  const yesterday = dateStrOffset(-1);
+  try {
+    const db = await openDb();
+    const tx = db.transaction('warehouse_daily', 'readonly');
+    const store = tx.objectStore('warehouse_daily');
+    const key = IDBKeyRange.bound(
+      [yesterday, currentWorkspaceId],
+      [yesterday, currentWorkspaceId],
+    );
+    const existing = await idbRequest<unknown>(store.get(key));
+    db.close();
+    if (!existing) {
+      await doRollup(yesterday);
+    }
+  } catch (err) {
+    console.error('[worker] checkYesterdayRollup error', err);
+  }
+}
+
+// ─── KPI computation ─────────────────────────────────────────────────────────
 
 function scheduleUpdate(): void {
   if (pendingUpdate) return;
   pendingUpdate = true;
   setTimeout(() => {
     pendingUpdate = false;
-    computeAndEmit();
+    computeKpi();
   }, COALESCE_MS);
 }
 
-function computeAndEmit(): void {
+function computeKpi(): void {
   const now = Date.now();
-  const cutoff = now - WINDOW_MS;
 
-  // Evict old events
-  events = events.filter(e => e.at >= cutoff);
+  // Evict entries outside the largest window we care about (10 min)
+  ringBuffer = ringBuffer.filter(e => e.at >= now - WINDOW_10_MIN);
 
-  const recentNotes = events.filter(e => e.type === 'note-created' && e.at >= now - 60_000).length;
+  // notesPerMinute: note-created events in last 60 s
+  const notesPerMinute = ringBuffer.filter(
+    e => e.type === 'note-created' && e.at >= now - WINDOW_1_MIN,
+  ).length;
+
+  // avgCommentResponseMs: stub — complex to compute accurately
+  const avgCommentResponseMs = 0;
+
+  // unresolvedRequests: mutual-help-published events in last 10 min
+  const unresolvedRequests = ringBuffer.filter(
+    e => e.type === 'mutual-help-published' && e.at >= now - WINDOW_10_MIN,
+  ).length;
+
+  // activePeers: distinct profileIds in last 5 min
+  const recentProfiles = new Set<string>();
+  for (const e of ringBuffer) {
+    if (e.at >= now - WINDOW_5_MIN && e.profileId) {
+      recentProfiles.add(e.profileId);
+    }
+  }
+  const activePeers = recentProfiles.size;
+
   const metrics: KpiSnapshot = {
-    notesPerMinute: recentNotes,
-    avgCommentResponseMs: 0,
-    unresolvedRequests: 0,
-    activePeers: 0,
+    notesPerMinute,
+    avgCommentResponseMs,
+    unresolvedRequests,
+    activePeers,
     computedAt: now,
   };
 
   postMessage({ kind: 'kpi-update', metrics });
 
-  // Check thresholds
-  for (const [_key, rule] of Object.entries(THRESHOLDS)) {
-    const current = metrics[rule.metric] as number;
-    const prev = (lastMetrics[rule.metric] as number | undefined) ?? 0;
-    const crossed =
-      rule.direction === 'above'
-        ? current >= rule.threshold && prev < rule.threshold
-        : current <= rule.threshold && prev > rule.threshold;
-
-    if (crossed) {
-      postMessage({
-        kind: 'kpi-alert',
-        metric: rule.metric,
-        value: current,
-        threshold: rule.threshold,
-        direction: rule.direction,
-        at: now,
-      });
-    }
+  // Threshold check: notesPerMinute >= 20 → alert 'highNoteRate'
+  const prevNpm = (lastMetrics.notesPerMinute as number | undefined) ?? 0;
+  if (notesPerMinute >= NOTE_RATE_THRESHOLD && prevNpm < NOTE_RATE_THRESHOLD) {
+    postMessage({
+      kind: 'kpi-alert',
+      metric: 'highNoteRate',
+      value: notesPerMinute,
+      threshold: NOTE_RATE_THRESHOLD,
+      direction: 'above',
+      at: now,
+    });
   }
 
   lastMetrics = metrics;
+}
+
+// ─── Daily rollup ─────────────────────────────────────────────────────────────
+
+async function doRollup(dateStr: string): Promise<void> {
+  try {
+    const { startMs, endMs } = dayBounds(dateStr);
+
+    const db = await openDb();
+    const tx = db.transaction('events', 'readonly');
+    const store = tx.objectStore('events');
+    const allEvents = await idbRequest<IdbEvent[]>(store.getAll());
+    db.close();
+
+    // Filter to this workspace and date range in-memory (no at-based index)
+    const dayEvents = allEvents.filter(
+      e => e.workspaceId === currentWorkspaceId && e.at >= startMs && e.at < endMs,
+    );
+
+    let notesCreated = 0;
+    let commentsAdded = 0;
+    let chatMessagesSent = 0;
+    let mutualHelpPublished = 0;
+    const profileSet = new Set<string>();
+
+    for (const e of dayEvents) {
+      switch (e.type) {
+        case 'note-created':        notesCreated++;         break;
+        case 'comment-added':       commentsAdded++;        break;
+        case 'chat-sent':           chatMessagesSent++;     break;
+        case 'mutual-help-published': mutualHelpPublished++; break;
+      }
+      const p = e.payload as Record<string, unknown> | undefined;
+      if (p?.['profileId']) profileSet.add(p['profileId'] as string);
+    }
+
+    const summary = {
+      date: dateStr,
+      workspaceId: currentWorkspaceId,
+      notesCreated,
+      commentsAdded,
+      chatMessagesSent,
+      mutualHelpPublished,
+      activeProfiles: Array.from(profileSet),
+      computedAt: Date.now(),
+    };
+
+    const db2 = await openDb();
+    const tx2 = db2.transaction('warehouse_daily', 'readwrite');
+    await idbRequest(tx2.objectStore('warehouse_daily').put(summary));
+    db2.close();
+
+    postMessage({ kind: 'rollup-complete', date: dateStr });
+  } catch (err) {
+    console.error('[worker] doRollup error', err);
+  }
+}
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+
+/** Promisify a single IDBRequest */
+function idbRequest<T>(req: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Return the ISO date string for today + offsetDays */
+function dateStrOffset(offsetDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Return start/end unix-ms for a local calendar date string (YYYY-MM-DD) */
+function dayBounds(dateStr: string): { startMs: number; endMs: number } {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const start = new Date(year, month - 1, day, 0, 0, 0, 0);
+  const end = new Date(year, month - 1, day + 1, 0, 0, 0, 0);
+  return { startMs: start.getTime(), endMs: end.getTime() };
+}
+
+// ─── IDB event shape (subset used here) ──────────────────────────────────────
+
+interface IdbEvent {
+  id: string;
+  workspaceId: string;
+  type: string;
+  at: number;
+  rolledUp: boolean;
+  payload?: Record<string, unknown>;
 }

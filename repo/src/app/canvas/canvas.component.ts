@@ -7,6 +7,8 @@ import {
   signal,
   computed,
   Input,
+  Output,
+  EventEmitter,
   HostListener,
   AfterViewInit,
 } from '@angular/core';
@@ -16,8 +18,9 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
 import { CanvasService } from './canvas.service';
 import { TabIdentityService } from '../core/tab-identity.service';
+import { PresenceService } from '../presence/presence.service';
 import { AppException } from '../core/error';
-import type { CanvasObject, CanvasObjectType } from '../core/types';
+import type { CanvasObject, CanvasObjectType, CursorPosition } from '../core/types';
 
 type Tool = CanvasObjectType | 'select' | 'erase';
 
@@ -159,8 +162,19 @@ const ZOOM_MAX = 4.0;
 
       <div class="toolbar-sep"></div>
 
+      <!-- Comment button — shown when a shape is selected in select mode -->
+      @if (activeTool() === 'select' && selectedId()) {
+        <button class="tool-btn comment-btn" title="Open comments for this shape" (click)="openComments.emit(selectedId()!)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
+        <div class="toolbar-sep"></div>
+      }
+
       <span class="tool-hint">
         @if (activeTool() === 'sticky-note') { Click canvas to place }
+        @else if (activeTool() === 'select' && selectedId())  { Click 💬 to comment }
         @else if (activeTool() === 'select')  { Click shape to select }
         @else if (activeTool() === 'erase')   { Click shape to delete }
         @else if (activeTool() === 'freehand'){ Drag to draw freely }
@@ -253,6 +267,7 @@ const ZOOM_MAX = 4.0;
 })
 export class CanvasComponent implements OnInit, AfterViewInit, OnDestroy {
   @Input() workspaceId = '';
+  @Output() openComments = new EventEmitter<string>();
   @ViewChild('shapeCanvas')   shapeCanvasRef!:   ElementRef<HTMLCanvasElement>;
   @ViewChild('previewCanvas') previewCanvasRef!: ElementRef<HTMLCanvasElement>;
   @ViewChild('viewport')      viewportRef!:      ElementRef<HTMLDivElement>;
