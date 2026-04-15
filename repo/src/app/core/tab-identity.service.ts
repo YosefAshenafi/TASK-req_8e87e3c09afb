@@ -19,14 +19,21 @@ const TAB_PALETTE: readonly string[] = [
 /** Generates a stable per-session tab identity (UUID + colour). */
 @Injectable({ providedIn: 'root' })
 export class TabIdentityService {
-  readonly tabId: string = uuidv4();
+  readonly tabId!: string;
   readonly color: string;
 
   constructor() {
+    const id = uuidv4();
+    Object.defineProperty(this, 'tabId', {
+      value: id,
+      writable: false,
+      enumerable: true,
+      configurable: false,
+    });
     // Pick a colour deterministically from the tab ID to avoid clashes
     // when multiple tabs are open (colour rotates through the palette).
     const slot =
-      parseInt(this.tabId.replace(/-/g, '').slice(0, 8), 16) % TAB_PALETTE.length;
+      parseInt(id.replace(/-/g, '').slice(0, 8), 16) % TAB_PALETTE.length;
     this.color = TAB_PALETTE[slot];
   }
 }

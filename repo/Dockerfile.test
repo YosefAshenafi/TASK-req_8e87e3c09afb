@@ -1,0 +1,16 @@
+FROM node:20-alpine
+
+# git + bash needed by some npm lifecycle scripts and husky
+RUN apk add --no-cache git bash python3 make g++
+
+WORKDIR /workspace
+
+# Install dependencies first for Docker layer cache efficiency
+COPY package*.json ./
+RUN npm ci
+
+# Copy all source files
+COPY . .
+
+# Default command (overridden per-service in docker-compose)
+CMD ["npm", "run", "test:unit"]

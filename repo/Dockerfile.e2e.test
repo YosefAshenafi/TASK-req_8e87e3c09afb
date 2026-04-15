@@ -1,0 +1,21 @@
+# Playwright E2E test image.
+# Uses node:20 (Debian Bookworm) so that `playwright install --with-deps`
+# can install the OS-level packages Chromium needs.
+FROM node:20
+
+WORKDIR /workspace
+
+# Install npm dependencies first (Docker layer cache)
+COPY package*.json ./
+RUN npm ci
+
+# Install Chromium and its OS-level dependencies
+RUN npx playwright install --with-deps chromium
+
+# Copy all source (including e2e_tests/)
+COPY . .
+
+# Point Playwright at the prod service via BASE_URL env var
+ENV BASE_URL=http://prod:8080
+
+CMD ["npm", "run", "test:e2e"]

@@ -2,22 +2,36 @@ import { Injectable } from '@angular/core';
 
 @Injectable({ providedIn: 'root' })
 export class PlatformService {
-  readonly hasShowSaveFilePicker: boolean =
-    typeof window !== 'undefined' && 'showSaveFilePicker' in window;
+  /** Evaluated at access time so tests can install `showSaveFilePicker` before export(). */
+  get hasShowSaveFilePicker(): boolean {
+    if (typeof window === 'undefined') return false;
+    const filePickerWindow = window as Window & {
+      showSaveFilePicker?: unknown;
+    };
+    return typeof filePickerWindow.showSaveFilePicker === 'function';
+  }
 
-  readonly hasBroadcastChannel: boolean =
-    typeof window !== 'undefined' && 'BroadcastChannel' in window;
+  get hasBroadcastChannel(): boolean {
+    return typeof window !== 'undefined' && 'BroadcastChannel' in window;
+  }
 
-  readonly hasServiceWorker: boolean =
-    typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
+  get hasServiceWorker(): boolean {
+    return typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
+  }
 
-  readonly hasIndexedDB: boolean =
-    typeof window !== 'undefined' && 'indexedDB' in window;
+  get hasIndexedDB(): boolean {
+    return typeof window !== 'undefined' && 'indexedDB' in window;
+  }
 
-  readonly hasSubtleCrypto: boolean =
-    typeof window !== 'undefined' &&
-    typeof crypto !== 'undefined' &&
-    'subtle' in crypto;
+  get hasSubtleCrypto(): boolean {
+    return (
+      typeof window !== 'undefined' &&
+      typeof crypto !== 'undefined' &&
+      'subtle' in crypto
+    );
+  }
 
-  readonly hasFileSystemAccess: boolean = this.hasShowSaveFilePicker;
+  get hasFileSystemAccess(): boolean {
+    return this.hasShowSaveFilePicker;
+  }
 }

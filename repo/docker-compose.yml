@@ -25,8 +25,26 @@ x-workspace-mounts: &workspace-mounts
     - ./scripts:/workspace/scripts
 
 services:
-  # ── Development server (default workflow) ──────────────────
+  # ── Production nginx — the ONLY default service (docker compose up) ────────
+  prod:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    ports:
+      - "8080:8080"
+    healthcheck:
+      # Use 127.0.0.1 explicitly — busybox wget resolves "localhost" to ::1 first,
+      # but nginx only listens on IPv4 (0.0.0.0:8080), causing "connection refused".
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
+  # ── Development server ────────────────────────────────────────────────────
   dev:
+    profiles: [dev]
     build:
       context: .
       dockerfile: Dockerfile.dev
@@ -42,43 +60,9 @@ services:
     stdin_open: true
     tty: true
 
-  # ── Unit / component tests (Vitest) ───────────────────────
-  test:
-    build:
-      context: .
-      dockerfile: Dockerfile.dev
-    entrypoint: ["/workspace/scripts/docker-entrypoint-dev.sh"]
-    command: ["ng", "test", "--watch=false"]
-    environment:
-      - NG_CLI_ANALYTICS=false
-      - NG_FORCE_TTY=false
-      - NODE_ENV=test
-    <<: *workspace-mounts
-
-  # ── Playwright end-to-end tests ───────────────────────────
-  e2e:
-    build:
-      context: .
-      dockerfile: Dockerfile.e2e
-    entrypoint: ["/workspace/scripts/docker-entrypoint-dev.sh"]
-    command: ["npx", "playwright", "test"]
-    depends_on:
-      - prod
-    environment:
-      - NG_CLI_ANALYTICS=false
-      - BASE_URL=http://prod:8080
-      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-    volumes:
-      - node_modules:/workspace/node_modules
-      - ./src:/workspace/src
-      - ./e2e:/workspace/e2e
-      - ./playwright.config.ts:/workspace/playwright.config.ts
-      - ./package.json:/workspace/package.json
-      - ./package-lock.json:/workspace/package-lock.json
-      - ./scripts:/workspace/scripts
-
-  # ── Production build (outputs to ./dist on the host) ──────
+  # ── Production build (outputs to ./dist on the host) ─────────────────────
   build:
+    profiles: [build]
     build:
       context: .
       dockerfile: Dockerfile.dev
@@ -100,16 +84,9 @@ services:
       - ./dist:/workspace/dist
       - ./scripts:/workspace/scripts
 
-  # ── Production nginx (smoke-test + e2e target) ─────────────
-  prod:
-    build:
-      context: .
-      dockerfile: Dockerfile.prod
-    ports:
-      - "8080:8080"
-
-  # ── Lint only ─────────────────────────────────────────────
+  # ── Lint only ─────────────────────────────────────────────────────────────
   lint:
+    profiles: [lint]
     build:
       context: .
       dockerfile: Dockerfile.dev
@@ -119,6 +96,114 @@ services:
       - NG_CLI_ANALYTICS=false
       - NG_FORCE_TTY=false
     <<: *workspace-mounts
+
+  # ── Legacy Angular Karma tests (profile: ng-test) ─────────────────────────
+  test:
+    profiles: [ng-test]
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    entrypoint: ["/workspace/scripts/docker-entrypoint-dev.sh"]
+    command: ["ng", "test", "--watch=false"]
+    environment:
+      - NG_CLI_ANALYTICS=false
+      - NG_FORCE_TTY=false
+      - NODE_ENV=test
+    <<: *workspace-mounts
+
+  # ── Legacy Playwright service (profile: ng-e2e) ───────────────────────────
+  e2e:
+    profiles: [ng-e2e]
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    entrypoint: ["/workspace/scripts/docker-entrypoint-dev.sh"]
+    command: ["npx", "playwright", "test"]
+    depends_on:
+      - prod
+    environment:
+      - NG_CLI_ANALYTICS=false
+      - BASE_URL=http://prod:8080
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    volumes:
+      - node_modules:/workspace/node_modules
+      - ./src:/workspace/src
+      - ./e2e:/workspace/e2e
+      - ./playwright.config.ts:/workspace/playwright.config.ts
+      - ./package.json:/workspace/package.json
+      - ./package-lock.json:/workspace/package-lock.json
+      - ./scripts:/workspace/scripts
+
+  # ════════════════════════════════════════════════════════════
+  #   TEST SERVICES  (profile: test)
+  #   Run via:  docker compose --profile test run --rm <name>
+  #   Or via:   ./run_tests.sh
+  # ════════════════════════════════════════════════════════════
+
+  # ── Vitest unit tests ─────────────────────────────────────────────────────
+  # Source and test configs are bind-mounted so that code changes are picked up
+  # without rebuilding the image (the image only supplies Node + node_modules).
+  unit-test:
+    profiles: [test]
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    command: ["npm", "run", "test:unit"]
+    environment:
+      - NODE_ENV=test
+    volumes:
+      - ./src:/workspace/src
+      - ./unit_tests:/workspace/unit_tests
+      - ./angular.json:/workspace/angular.json
+      - ./tsconfig.json:/workspace/tsconfig.json
+      - ./tsconfig.spec.json:/workspace/tsconfig.spec.json
+      - ./package.json:/workspace/package.json
+      - ./package-lock.json:/workspace/package-lock.json
+      - ./coverage:/workspace/coverage
+
+  # ── Vitest API (integration) tests ────────────────────────────────────────
+  api-test:
+    profiles: [test]
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    command: ["npm", "run", "test:api"]
+    environment:
+      - NODE_ENV=test
+    volumes:
+      - ./src:/workspace/src
+      - ./API_tests:/workspace/API_tests
+      - ./angular.json:/workspace/angular.json
+      - ./tsconfig.json:/workspace/tsconfig.json
+      - ./tsconfig.spec.json:/workspace/tsconfig.spec.json
+      - ./package.json:/workspace/package.json
+      - ./package-lock.json:/workspace/package-lock.json
+      - ./coverage:/workspace/coverage
+
+  # ── Playwright E2E tests (requires prod to be healthy) ────────────────────
+  # Shares prod's network namespace so the app is reachable at http://localhost:8080.
+  # This matters because Chromium only treats localhost (and HTTPS) as a
+  # "secure context" — required for the app's window.crypto.subtle (PBKDF2)
+  # password hashing. Connecting via http://prod:8080 would disable SubtleCrypto.
+  e2e-test:
+    profiles: [test]
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e.test
+    command: ["npm", "run", "test:e2e"]
+    environment:
+      - BASE_URL=http://localhost:8080
+      - NODE_ENV=test
+    network_mode: "service:prod"
+    depends_on:
+      prod:
+        condition: service_healthy
+    volumes:
+      - ./e2e_tests:/workspace/e2e_tests
+      - ./package.json:/workspace/package.json
+      - ./package-lock.json:/workspace/package-lock.json
+      - ./tsconfig.json:/workspace/tsconfig.json
+      - ./coverage:/workspace/coverage
 
 volumes:
   node_modules:

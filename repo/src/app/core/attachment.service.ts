@@ -31,13 +31,16 @@ export class AttachmentService {
 
     const id = uuidv4();
     const idb = await this.db.open();
+    // Store bytes as Uint8Array — fake-indexeddb/jsdom often drops Blob on structured clone read.
+    const body = new Uint8Array(await file.arrayBuffer());
+    const mimeType = file.type || 'application/octet-stream';
     await idb.put('attachments', {
       id,
       workspaceId,
       filename: file.name,
-      mimeType: file.type || 'application/octet-stream',
+      mimeType,
       sizeBytes: file.size,
-      blob: file,
+      blob: body as unknown as Blob,
       uploadedAt: Date.now(),
     });
     return id;
@@ -53,7 +56,16 @@ export class AttachmentService {
 
   async getBlob(id: string): Promise<Blob | undefined> {
     const idb = await this.db.open();
-    return (await idb.get('attachments', id))?.blob;
+    const rec = await idb.get('attachments', id);
+    if (!rec) return undefined;
+    const raw = rec.blob as unknown;
+    if (raw instanceof Blob) return raw;
+    if (raw instanceof Uint8Array) {
+      // Normalize to a plain Uint8Array backed by ArrayBuffer for strict TS BlobPart typing.
+      const bytes = Uint8Array.from(raw);
+      return new Blob([bytes], { type: rec.mimeType || 'application/octet-stream' });
+    }
+    return undefined;
   }
 
   async delete(id: string): Promise<void> {

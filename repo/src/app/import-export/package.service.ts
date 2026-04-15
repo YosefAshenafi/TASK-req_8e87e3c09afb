@@ -24,6 +24,16 @@ export class PackageService {
     private readonly platform: PlatformService,
   ) {}
 
+  /** Read full file bytes — jsdom `File.arrayBuffer()` / `Response` can return empty data for some blobs. */
+  private _fileToArrayBuffer(file: File): Promise<ArrayBuffer> {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result as ArrayBuffer);
+      r.onerror = () => reject(r.error ?? new Error('FileReader failed'));
+      r.readAsArrayBuffer(file);
+    });
+  }
+
   async export(workspaceId: string): Promise<{ ok: boolean; detail?: string }> {
     const idb = await this.db.open();
     const workspace = await idb.get('workspaces', workspaceId);
@@ -110,9 +120,15 @@ export class PackageService {
 
     let zip: JSZip;
     try {
-      zip = await JSZip.loadAsync(file);
-    } catch {
-      return { ok: false, reason: 'BadManifest', detail: 'Could not read ZIP file' };
+      const buf = await this._fileToArrayBuffer(file);
+      // JSZip in some environments rejects ArrayBuffer but accepts Uint8Array.
+      zip = await JSZip.loadAsync(new Uint8Array(buf));
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        reason: 'BadManifest',
+        detail: `Could not read ZIP file: ${e instanceof Error ? e.message : String(e)}`,
+      };
     }
 
     const manifestFile = zip.file('manifest.json');
@@ -145,18 +161,47 @@ export class PackageService {
       }
     }
 
-    // Write all stores in a single transaction (atomicity)
+    const importDate = new Date().toISOString().slice(0, 10);
+
+    // Read the entire ZIP into memory first — awaiting JSZip inside an IDB transaction yields and
+    // auto-commits the transaction (fake-indexeddb / browser), causing InvalidStateError.
+    const wsFile = zip.file('workspaces.json') ?? null;
+    const storeFiles: Array<[string, string]> = [
+      ['canvas_objects', 'canvas_objects.json'],
+      ['comments', 'comments.json'],
+      ['chat', 'chat.json'],
+      ['mutual_help', 'mutual_help.json'],
+      ['snapshots', 'snapshots.json'],
+    ];
+    const storeRows: Array<[string, Record<string, unknown>[]]> = [];
+    for (const [store, filename] of storeFiles) {
+      const f = zip.file(filename);
+      storeRows.push([store, f ? (JSON.parse(await f.async('text')) as Record<string, unknown>[]) : []]);
+    }
+
+    const attachmentPayloads: Array<{ id: string; blob: Blob }> = [];
+    for (const path of Object.keys(zip.files)) {
+      if (!path.startsWith('blobs/') || path.endsWith('/')) continue;
+      const entry = zip.files[path];
+      if (entry.dir) continue;
+      attachmentPayloads.push({
+        id: path.slice('blobs/'.length),
+        blob: await entry.async('blob'),
+      });
+    }
+
+    let workspaceRowsFromFile: Record<string, unknown>[] | null = null;
+    if (wsFile) {
+      const raw = JSON.parse(await wsFile.async('text')) as unknown;
+      workspaceRowsFromFile = (Array.isArray(raw) ? raw : [raw]) as Record<string, unknown>[];
+    }
+
     const tx = idb.transaction(
       ['workspaces', 'canvas_objects', 'comments', 'chat', 'mutual_help', 'snapshots', 'attachments'],
       'readwrite',
     );
 
-    const importDate = new Date().toISOString().slice(0, 10);
-
-    // Workspace
-    const wsFile = zip.file('workspaces.json') ?? null;
-    if (!wsFile) {
-      // Read from manifest — at minimum create a stub workspace
+    if (!workspaceRowsFromFile) {
       await tx.objectStore('workspaces').put({
         id: targetWorkspaceId,
         name: existing ? `${existing.name} (imported ${importDate})` : `Imported ${importDate}`,
@@ -165,21 +210,17 @@ export class PackageService {
         updatedAt: Date.now(),
         version: 1,
       });
+    } else {
+      const wsStore = tx.objectStore('workspaces');
+      for (const w of workspaceRowsFromFile) {
+        const row = { ...w } as Record<string, unknown>;
+        if (action === 'copied') (row as { id: string }).id = targetWorkspaceId;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (wsStore as any).put(row);
+      }
     }
 
-    // Restore each store
-    const storeFiles: Array<[string, string]> = [
-      ['canvas_objects', 'canvas_objects.json'],
-      ['comments', 'comments.json'],
-      ['chat', 'chat.json'],
-      ['mutual_help', 'mutual_help.json'],
-      ['snapshots', 'snapshots.json'],
-    ];
-
-    for (const [store, filename] of storeFiles) {
-      const f = zip.file(filename);
-      if (!f) continue;
-      const rows = JSON.parse(await f.async('text')) as Record<string, unknown>[];
+    for (const [store, rows] of storeRows) {
       const st = tx.objectStore(store as 'canvas_objects');
       for (const row of rows) {
         if (action === 'copied') (row as { workspaceId: string }).workspaceId = targetWorkspaceId;
@@ -188,14 +229,16 @@ export class PackageService {
       }
     }
 
-    // Attachments
-    const blobFolder = zip.folder('blobs');
-    if (blobFolder) {
-      const attStore = tx.objectStore('attachments');
-      blobFolder.forEach(async (relativePath, file) => {
-        const blob = await file.async('blob');
-        const id = relativePath.replace('blobs/', '');
-        await attStore.put({ id, workspaceId: targetWorkspaceId, blob, uploadedAt: Date.now(), filename: id, mimeType: 'application/octet-stream', sizeBytes: blob.size });
+    const attStore = tx.objectStore('attachments');
+    for (const { id, blob } of attachmentPayloads) {
+      await attStore.put({
+        id,
+        workspaceId: targetWorkspaceId,
+        blob,
+        uploadedAt: Date.now(),
+        filename: id,
+        mimeType: 'application/octet-stream',
+        sizeBytes: blob.size,
       });
     }
 

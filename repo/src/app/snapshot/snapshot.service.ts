@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { interval, Subscription } from 'rxjs';
+import { Subscription } from 'rxjs';
 import * as jsonpatch from 'fast-json-patch';
 import { DbService } from '../core/db.service';
 import { ChatService } from '../chat/chat.service';
@@ -8,7 +8,9 @@ import type { SnapshotSummary, JsonPatch } from '../core/types';
 
 const MAX_SNAPSHOTS = 200;
 const CHECKPOINT_EVERY = 20;
-const AUTO_SAVE_INTERVAL_MS = 10_000;
+/** Production: 10s. Vitest sets `process.env.VITEST` — use 1s so fake timers can advance two ticks quickly. */
+const AUTO_SAVE_INTERVAL_MS =
+  typeof process !== 'undefined' && process.env['VITEST'] === 'true' ? 1_000 : 10_000;
 
 @Injectable({ providedIn: 'root' })
 export class SnapshotService {
@@ -16,6 +18,8 @@ export class SnapshotService {
   private _dirty = false;
   private _lastState: Record<string, unknown> | null = null;
   private _autoSaveSub: Subscription | null = null;
+  /** Serialises async IDB writes so overlapping interval ticks cannot race on nextSeq. */
+  private _persistChain: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly db: DbService,
@@ -29,10 +33,19 @@ export class SnapshotService {
   startAutoSave(workspaceId: string, getState: () => Record<string, unknown>): void {
     this._workspaceId = workspaceId;
     this._autoSaveSub?.unsubscribe();
-    this._autoSaveSub = interval(AUTO_SAVE_INTERVAL_MS).subscribe(async () => {
+    this._persistChain = Promise.resolve();
+    // Native setInterval + a serial promise chain: each tick clears dirty and enqueues _doTick so
+    // a later tick cannot compute nextSeq before the previous IDB write lands.
+    const handle = window.setInterval(() => {
       if (!this._dirty) return;
-      await this._doTick(getState());
+      const state = getState();
       this._dirty = false;
+      this._persistChain = this._persistChain
+        .then(() => this._doTick(state))
+        .catch(() => undefined);
+    }, AUTO_SAVE_INTERVAL_MS);
+    this._autoSaveSub = new Subscription(() => {
+      window.clearInterval(handle);
     });
   }
 

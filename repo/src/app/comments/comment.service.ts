@@ -43,9 +43,16 @@ export class CommentService {
   }
 
   async openOrCreateThread(targetId: string, workspaceId = ''): Promise<CommentThread> {
+    // Ensure a subject exists so _updateThreadSubject can emit (threadsByTarget$ may not be subscribed yet).
+    if (!this._threads$.has(targetId)) {
+      this._threads$.set(targetId, new BehaviorSubject<CommentThread | null>(null));
+    }
     const idb = await this.db.open();
     const existing = await idb.getFromIndex('comments', 'by_target', targetId);
-    if (existing) return existing as CommentThread;
+    if (existing) {
+      this._updateThreadSubject(existing as CommentThread);
+      return existing as CommentThread;
+    }
 
     const now = Date.now();
     const thread: CommentThread = {
