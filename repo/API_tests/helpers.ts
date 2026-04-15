@@ -16,6 +16,7 @@ import { SnapshotService } from '../src/app/snapshot/snapshot.service';
 import { TelemetryService } from '../src/app/telemetry/telemetry.service';
 import { KpiService } from '../src/app/kpi/kpi.service';
 import { NoteImportService } from '../src/app/import-export/note-import.service';
+import { ToastService } from '../src/app/core/toast.service';
 import type { PersonaRole } from '../src/app/core/types';
 
 export interface FullContext {
@@ -43,12 +44,13 @@ export function makeFullContext(): FullContext {
   const broadcast = new BroadcastService(tab);
   const auth = new AuthService(db, prefs);
   const workspace = new WorkspaceService(db, prefs, broadcast, auth);
-  const canvas = new CanvasService(db, broadcast, tab);
-  const chat = new ChatService(db, broadcast, tab, auth);
-  const comments = new CommentService(db, broadcast, tab, auth);
-  const mutualHelp = new MutualHelpService(db, broadcast);
-  const snapshot = new SnapshotService(db, chat);
   const telemetry = new TelemetryService(db);
+  const toast = new ToastService();
+  const canvas = new CanvasService(db, broadcast, tab, auth, telemetry);
+  const chat = new ChatService(db, broadcast, tab, auth, telemetry);
+  const comments = new CommentService(db, broadcast, tab, auth, telemetry, toast);
+  const mutualHelp = new MutualHelpService(db, broadcast, telemetry, auth);
+  const snapshot = new SnapshotService(db, chat);
   const kpi = new KpiService(db, telemetry);
   const noteImport = new NoteImportService(db, chat);
 

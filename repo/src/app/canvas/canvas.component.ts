@@ -214,6 +214,26 @@ const ZOOM_MAX = 4.0;
           <!-- Preview layer (drag feedback) -->
           <canvas #previewCanvas [width]="CANVAS_W" [height]="CANVAS_H" class="layer preview-layer"></canvas>
 
+          <!-- ── Remote cursor overlay (H-06) ────────────────────────────── -->
+          @for (c of remoteCursors(); track c.tabId) {
+            <div
+              class="remote-cursor"
+              [style.left.px]="c.x"
+              [style.top.px]="c.y"
+              [style.color]="c.color"
+              [attr.data-tab]="c.tabId"
+              aria-hidden="true"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"
+                   xmlns="http://www.w3.org/2000/svg">
+                <path d="M3 2 L3 20 L8 15 L11 22 L13 21 L10 14 L17 14 Z"/>
+              </svg>
+              <span class="remote-cursor-label" [style.background]="c.color">
+                {{ c.tabId.slice(0, 4) }}
+              </span>
+            </div>
+          }
+
           <!-- DOM sticky-note layer -->
           @for (obj of stickyNotes(); track obj.id) {
             <div
@@ -303,6 +323,10 @@ export class CanvasComponent implements OnInit, AfterViewInit, OnDestroy {
     this._allObjects().filter(o => o.type === 'sticky-note'),
   );
 
+  /** H-06: observed remote cursors from `PresenceService.cursors$`. */
+  protected remoteCursors = signal<CursorPosition[]>([]);
+  private _lastCursorSent = 0;
+
   // ── Private state ──────────────────────────────────────────────────────────
   private _allObjects = signal<CanvasObject[]>([]);
   private _shapeDrag: ShapeDrag | null = null;
@@ -326,6 +350,7 @@ export class CanvasComponent implements OnInit, AfterViewInit, OnDestroy {
     private readonly canvasService: CanvasService,
     private readonly tab: TabIdentityService,
     private readonly sanitizer: DomSanitizer,
+    private readonly presence: PresenceService,
   ) {
     const defs: Array<{ id: Tool; label: string }> = [
       { id: 'select',      label: 'Select (S)'      },
@@ -352,6 +377,11 @@ export class CanvasComponent implements OnInit, AfterViewInit, OnDestroy {
         this._allObjects.set(objs);
         this._redrawShapes();
       }),
+    );
+
+    // H-06: mirror remote cursors into a signal for template rendering
+    this._subs.add(
+      this.presence.cursors$.subscribe(cs => this.remoteCursors.set(cs)),
     );
   }
 
@@ -590,6 +620,15 @@ export class CanvasComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   protected onViewportMouseMove(e: MouseEvent): void {
+    // ── H-06: broadcast cursor position (canvas coords) to peer tabs ──
+    // Local 40 ms cap ≈ 25 Hz; BroadcastService adds its own 50 ms throttle.
+    const now = Date.now();
+    if (now - this._lastCursorSent >= 40) {
+      this._lastCursorSent = now;
+      const { x: cx, y: cy } = this._canvasCoords(e);
+      this.presence.broadcastCursor(cx, cy);
+    }
+
     // ── Pan ──
     if (this._panDrag) {
       const vp = this.viewportRef.nativeElement;

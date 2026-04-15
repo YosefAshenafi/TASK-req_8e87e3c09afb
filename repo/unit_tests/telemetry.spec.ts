@@ -120,4 +120,53 @@ describe('TelemetryService', () => {
       telemetry.terminate();
     });
   });
+
+  // ── H-05: worker message contract ────────────────────────────────────────
+
+  describe('worker message schema (H-05)', () => {
+    it('posts event-appended messages with type, workspaceId, and profileId fields', async () => {
+      telemetry.boot(WS);
+      const worker = telemetry.workerMessages$!;
+      const spy = vi.spyOn(worker, 'postMessage');
+
+      telemetry.log({
+        workspaceId: WS,
+        type: 'note-created',
+        payload: { profileId: 'profile-xyz', objectId: 'obj-1' },
+      });
+
+      // Wait for the fire-and-forget _persist to finish.
+      await new Promise(r => setTimeout(r, 50));
+
+      // Find the event-appended message among whatever the worker was sent.
+      const eventMsg = spy.mock.calls
+        .map(c => c[0] as Record<string, unknown>)
+        .find(m => m?.['kind'] === 'event-appended');
+
+      expect(eventMsg).toBeDefined();
+      expect(eventMsg?.['type']).toBe('note-created');
+      expect(eventMsg?.['workspaceId']).toBe(WS);
+      expect(eventMsg?.['profileId']).toBe('profile-xyz');
+      expect(typeof eventMsg?.['id']).toBe('string');
+
+      telemetry.terminate();
+    });
+
+    it('omits profileId when payload does not carry one', async () => {
+      telemetry.boot(WS);
+      const worker = telemetry.workerMessages$!;
+      const spy = vi.spyOn(worker, 'postMessage');
+
+      telemetry.log({ workspaceId: WS, type: 'chat-sent', payload: {} });
+      await new Promise(r => setTimeout(r, 50));
+
+      const eventMsg = spy.mock.calls
+        .map(c => c[0] as Record<string, unknown>)
+        .find(m => m?.['kind'] === 'event-appended');
+
+      expect(eventMsg).toBeDefined();
+      expect(eventMsg?.['profileId']).toBeUndefined();
+      telemetry.terminate();
+    });
+  });
 });

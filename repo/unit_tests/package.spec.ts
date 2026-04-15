@@ -234,5 +234,58 @@ describe('PackageService', () => {
       // Restore
       (global as unknown as Record<string, unknown>).confirm = vi.fn(() => true);
     });
+
+    // ── H-03: 3-way conflict resolver ─────────────────────────────────────
+
+    it('import() with resolver returning "cancel" aborts with Cancelled outcome (H-03)', async () => {
+      const ctx = await signedInCtx();
+      const workspaceId = 'cancel-ws';
+      const idb = await ctx.db.open();
+      await idb.put('workspaces', {
+        id: workspaceId, name: 'Existing', ownerProfileId: '',
+        createdAt: 0, updatedAt: 0, version: 1,
+      });
+
+      const file = await buildPackage(workspaceId, 'Incoming');
+      const outcome = await ctx.pkg.import(file, async () => 'cancel');
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) expect(outcome.reason).toBe('Cancelled');
+    });
+
+    it('import() with resolver returning "overwrite" overwrites the existing workspace (H-03)', async () => {
+      const ctx = await signedInCtx();
+      const workspaceId = 'overwrite-ws';
+      const idb = await ctx.db.open();
+      await idb.put('workspaces', {
+        id: workspaceId, name: 'Old Name', ownerProfileId: '',
+        createdAt: 0, updatedAt: 0, version: 1,
+      });
+
+      const file = await buildPackage(workspaceId, 'New Name');
+      const outcome = await ctx.pkg.import(file, async () => 'overwrite');
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok) {
+        expect(outcome.action).toBe('overwritten');
+        expect(outcome.workspaceId).toBe(workspaceId);
+      }
+    });
+
+    it('import() with resolver returning "copy" creates a new workspace id (H-03)', async () => {
+      const ctx = await signedInCtx();
+      const workspaceId = 'copy-ws';
+      const idb = await ctx.db.open();
+      await idb.put('workspaces', {
+        id: workspaceId, name: 'Old Name', ownerProfileId: '',
+        createdAt: 0, updatedAt: 0, version: 1,
+      });
+
+      const file = await buildPackage(workspaceId, 'Fresh Import');
+      const outcome = await ctx.pkg.import(file, async () => 'copy');
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok) {
+        expect(outcome.action).toBe('copied');
+        expect(outcome.workspaceId).not.toBe(workspaceId);
+      }
+    });
   });
 });

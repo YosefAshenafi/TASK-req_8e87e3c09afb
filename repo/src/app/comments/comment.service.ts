@@ -5,6 +5,8 @@ import { DbService } from '../core/db.service';
 import { BroadcastService } from '../core/broadcast.service';
 import { TabIdentityService } from '../core/tab-identity.service';
 import { AuthService } from '../auth/auth.service';
+import { TelemetryService } from '../telemetry/telemetry.service';
+import { ToastService } from '../core/toast.service';
 import { AppException } from '../core/error';
 import type { CommentThread, InboxItem, Reply } from '../core/types';
 
@@ -30,6 +32,8 @@ export class CommentService {
     private readonly broadcast: BroadcastService,
     private readonly tab: TabIdentityService,
     private readonly auth: AuthService,
+    private readonly telemetry: TelemetryService,
+    private readonly toast: ToastService,
   ) {
     this._listenForComments();
   }
@@ -120,6 +124,13 @@ export class CommentService {
     // Broadcast so other tabs can check if their user was mentioned
     this.broadcast.publish({ kind: 'comment', threadId, reply, mentions });
 
+    // H-05: emit telemetry for KPI aggregation
+    this.telemetry.log({
+      workspaceId: thread.workspaceId,
+      type: 'comment-added',
+      payload: { profileId: currentProfileId, threadId, replyId: reply.id },
+    });
+
     return reply;
   }
 
@@ -177,16 +188,19 @@ export class CommentService {
       const currentUsername = this.auth.currentProfile?.username;
       const mentions: string[] = msg.mentions ?? [];
       if (currentUsername && mentions.includes(currentUsername)) {
+        const mentionedBy = msg.reply.authorName ?? msg.reply.authorId;
         this._addInboxItem({
           id: uuidv4(),
           threadId: msg.threadId,
           workspaceId: thread.workspaceId,
           targetId: thread.targetId,
-          mentionedBy: msg.reply.authorName ?? msg.reply.authorId,
+          mentionedBy,
           body: msg.reply.body,
           at: Date.now(),
           read: false,
         });
+        // Medium: surface a toast in the receiving tab so the mention is visible immediately.
+        this.toast.show(`@${mentionedBy} mentioned you in a comment`, 'info', 5000);
       }
     });
   }

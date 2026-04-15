@@ -28,7 +28,7 @@ describe('ChatService', () => {
       await chat.loadForWorkspace(WS);
       await chat.send('Hello');
       // New service instance reads from same IDB
-      const chat2 = new ChatService(ctx.db, ctx.broadcast, ctx.tab, ctx.auth);
+      const chat2 = new ChatService(ctx.db, ctx.broadcast, ctx.tab, ctx.auth, ctx.telemetry);
       await chat2.loadForWorkspace(WS);
       const msgs = await firstValueFrom(chat2.messages$);
       expect(msgs).toHaveLength(1);

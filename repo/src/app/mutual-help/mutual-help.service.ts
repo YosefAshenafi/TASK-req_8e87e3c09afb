@@ -3,6 +3,8 @@ import { BehaviorSubject, Observable } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 import { DbService } from '../core/db.service';
 import { BroadcastService } from '../core/broadcast.service';
+import { TelemetryService } from '../telemetry/telemetry.service';
+import { AuthService } from '../auth/auth.service';
 import { AppException } from '../core/error';
 import type { MutualHelpPost, NewPostInput } from '../core/types';
 
@@ -22,6 +24,8 @@ export class MutualHelpService {
   constructor(
     private readonly db: DbService,
     private readonly broadcast: BroadcastService,
+    private readonly telemetry: TelemetryService,
+    private readonly auth: AuthService,
   ) {}
 
   async loadForWorkspace(workspaceId: string): Promise<void> {
@@ -63,7 +67,14 @@ export class MutualHelpService {
   }
 
   async publish(postId: string): Promise<MutualHelpPost> {
-    return this._transition(postId, { status: 'active' });
+    const updated = await this._transition(postId, { status: 'active' });
+    // H-05: emit telemetry for KPI aggregation
+    this.telemetry.log({
+      workspaceId: updated.workspaceId,
+      type: 'mutual-help-published',
+      payload: { profileId: this.auth.currentProfile?.id, postId },
+    });
+    return updated;
   }
 
   async edit(

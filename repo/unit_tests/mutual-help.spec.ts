@@ -26,7 +26,7 @@ describe('MutualHelpService', () => {
 
   beforeEach(() => {
     ctx = makeContext();
-    mh = new MutualHelpService(ctx.db, ctx.broadcast);
+    mh = new MutualHelpService(ctx.db, ctx.broadcast, ctx.telemetry, ctx.auth);
   });
 
   // ── loadForWorkspace ───────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ describe('MutualHelpService', () => {
     it('loads previously created posts', async () => {
       await mh.loadForWorkspace(WS);
       await mh.createDraft(makeInput());
-      const mh2 = new MutualHelpService(ctx.db, ctx.broadcast);
+      const mh2 = new MutualHelpService(ctx.db, ctx.broadcast, ctx.telemetry, ctx.auth);
       await mh2.loadForWorkspace(WS);
       const posts = await firstValueFrom(mh2.posts$);
       expect(posts).toHaveLength(1);

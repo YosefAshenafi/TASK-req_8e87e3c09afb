@@ -17,6 +17,9 @@ export type ImportOutcome =
   | { ok: true; workspaceId: string; action: 'created' | 'overwritten' | 'copied' }
   | { ok: false; reason: 'BadManifest' | 'TooLarge' | 'Cancelled' | 'Unsupported'; detail?: string };
 
+export type ConflictChoice = 'overwrite' | 'copy' | 'cancel';
+export type ConflictResolver = (existingName: string) => Promise<ConflictChoice>;
+
 @Injectable({ providedIn: 'root' })
 export class PackageService {
   constructor(
@@ -113,7 +116,7 @@ export class PackageService {
     return { ok: true };
   }
 
-  async import(file: File): Promise<ImportOutcome> {
+  async import(file: File, resolver?: ConflictResolver): Promise<ImportOutcome> {
     if (file.size > MAX_PACKAGE_BYTES) {
       return { ok: false, reason: 'TooLarge', detail: `File exceeds 200 MB limit (${(file.size / 1024 / 1024).toFixed(1)} MB)` };
     }
@@ -152,12 +155,28 @@ export class PackageService {
     let targetWorkspaceId = manifest.workspaceId;
 
     if (existing) {
-      const choice = window.confirm(
-        `A workspace named "${existing.name}" already exists. Click OK to overwrite it, Cancel to create a copy.`,
-      );
-      if (!choice) {
+      // H-03: 3-way decision. Prefer a UI-supplied resolver that can offer Overwrite / Copy /
+      // Cancel. Fall back to native confirm (2-way) only when no resolver is supplied — the
+      // UI path in the workspace shell always supplies one, so the user-visible behaviour is
+      // Overwrite / Create Copy / Cancel.
+      let choice: ConflictChoice;
+      if (resolver) {
+        choice = await resolver(existing.name);
+      } else {
+        const overwrite = window.confirm(
+          `A workspace named "${existing.name}" already exists. Click OK to overwrite it, Cancel to create a copy.`,
+        );
+        choice = overwrite ? 'overwrite' : 'copy';
+      }
+
+      if (choice === 'cancel') {
+        return { ok: false, reason: 'Cancelled', detail: 'Import cancelled by user' };
+      }
+      if (choice === 'copy') {
         action = 'copied';
         targetWorkspaceId = crypto.randomUUID();
+      } else {
+        action = 'overwritten';
       }
     }
 

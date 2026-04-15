@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { firstValueFrom } from 'rxjs';
 import { DbService } from '../src/app/core/db.service';
+import { PrefsService } from '../src/app/core/prefs.service';
 import { TabIdentityService } from '../src/app/core/tab-identity.service';
 import { BroadcastService } from '../src/app/core/broadcast.service';
 import { CanvasService } from '../src/app/canvas/canvas.service';
+import { AuthService } from '../src/app/auth/auth.service';
+import { TelemetryService } from '../src/app/telemetry/telemetry.service';
 import { AppException } from '../src/app/core/error';
 import type { CanvasObject } from '../src/app/core/types';
 
@@ -23,15 +26,21 @@ function makeStickyInput(overrides: Partial<CanvasObject> = {}): Omit<CanvasObje
 
 describe('CanvasService', () => {
   let db: DbService;
+  let prefs: PrefsService;
   let tab: TabIdentityService;
   let broadcast: BroadcastService;
   let canvas: CanvasService;
+  let auth: AuthService;
+  let telemetry: TelemetryService;
 
   beforeEach(() => {
     db = new DbService();
+    prefs = new PrefsService();
     tab = new TabIdentityService();
     broadcast = new BroadcastService(tab);
-    canvas = new CanvasService(db, broadcast, tab);
+    auth = new AuthService(db, prefs);
+    telemetry = new TelemetryService(db);
+    canvas = new CanvasService(db, broadcast, tab, auth, telemetry);
   });
 
   // ── loadForWorkspace ───────────────────────────────────────────────────────
@@ -46,7 +55,7 @@ describe('CanvasService', () => {
     it('loads persisted objects after add', async () => {
       await canvas.addObject(makeStickyInput());
       // New service instance reads from same IDB
-      const canvas2 = new CanvasService(db, broadcast, tab);
+      const canvas2 = new CanvasService(db, broadcast, tab, auth, telemetry);
       await canvas2.loadForWorkspace(WS);
       const objects = await firstValueFrom(canvas2.objects$);
       expect(objects).toHaveLength(1);

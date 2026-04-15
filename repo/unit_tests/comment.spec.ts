@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { firstValueFrom } from 'rxjs';
 import { makeContext, createAndSignIn } from './helpers';
 import { CommentService } from '../src/app/comments/comment.service';
+import { ToastService } from '../src/app/core/toast.service';
 import { AppException } from '../src/app/core/error';
 
 const WS = 'workspace-comments';
@@ -13,7 +14,7 @@ describe('CommentService', () => {
 
   beforeEach(async () => {
     ctx = makeContext();
-    comments = new CommentService(ctx.db, ctx.broadcast, ctx.tab, ctx.auth);
+    comments = new CommentService(ctx.db, ctx.broadcast, ctx.tab, ctx.auth, ctx.telemetry, new ToastService());
     await createAndSignIn(ctx.auth, 'alice', 'password123');
   });
 

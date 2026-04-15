@@ -189,9 +189,12 @@ describe('NoteImportService', () => {
       await importer.commit(WS, rows);
       const idb = await ctx.db.open();
       const objects = await idb.getAllFromIndex('canvas_objects', 'by_workspace', WS);
-      // The 11th object (index 10) should be on the second row (Math.floor(10/10)=1)
+      // getAllFromIndex returns rows in primary-key (UUID) order, not insertion order —
+      // look up the specific notes by text rather than assuming `objects[0]` is Note 0.
+      const firstObj = objects.find(o => o.text === 'Note 0');
       const eleventhObj = objects.find(o => o.text === 'Note 10');
-      expect(eleventhObj?.y).toBeGreaterThan(objects[0].y);
+      // The 11th object (index 10) should be on the second row (Math.floor(10/10)=1)
+      expect(eleventhObj?.y).toBeGreaterThan(firstObj!.y);
     });
   });
 });

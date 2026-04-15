@@ -17,13 +17,20 @@ import { TabIdentityService } from '../core/tab-identity.service';
 import { PrefsService } from '../core/prefs.service';
 import { PresenceService } from '../presence/presence.service';
 import { CommentService } from '../comments/comment.service';
+import { TelemetryService } from '../telemetry/telemetry.service';
+import { PersonaService } from '../auth/persona.service';
+import { PackageService } from '../import-export/package.service';
+import { ToastService } from '../core/toast.service';
 import { CanvasComponent } from '../canvas/canvas.component';
 import { ChatPanelComponent } from '../chat/chat-panel.component';
 import { CommentDrawerComponent } from '../comments/comment-drawer.component';
 import { InboxPanelComponent } from '../inbox/inbox-panel.component';
 import { MutualHelpBoardComponent } from '../mutual-help/mutual-help-board.component';
 import { ActivityFeedComponent } from '../presence/activity-feed.component';
+import { NoteImportWizardComponent } from '../import-export/note-import-wizard.component';
+import { PackageImportConflictDialogComponent } from '../import-export/package-import-conflict-dialog.component';
 import type { Workspace } from '../core/types';
+import type { ConflictChoice } from '../import-export/package.service';
 
 type ActiveView = 'canvas' | 'mutual-help';
 
@@ -56,6 +63,8 @@ function peerInitials(name: string): string {
     InboxPanelComponent,
     MutualHelpBoardComponent,
     ActivityFeedComponent,
+    NoteImportWizardComponent,
+    PackageImportConflictDialogComponent,
   ],
   template: `
     <div class="workspace-shell" [attr.data-workspace-id]="workspaceId()">
@@ -104,6 +113,46 @@ function peerInitials(name: string): string {
             >{{ peerInitials(peer.profileId) }}</div>
           }
         </div>
+
+        <!-- H-01 / H-02 / H-03: persona-gated import / export / reporting convenience actions -->
+        @if (canImportNotes()) {
+          <button
+            class="header-btn"
+            type="button"
+            (click)="openNoteImport()"
+            title="Bulk import notes (CSV / JSON)"
+            aria-label="Bulk import notes"
+          >📥 Notes</button>
+        }
+        @if (canImportPackage()) {
+          <label class="header-btn" title="Import workspace package" aria-label="Import workspace package">
+            📦 Import
+            <input
+              type="file"
+              accept=".srpackage,.zip,application/zip"
+              style="display:none"
+              (change)="onPackageFileSelected($event)"
+            />
+          </label>
+        }
+        @if (canExport()) {
+          <button
+            class="header-btn"
+            type="button"
+            (click)="exportPackage()"
+            [disabled]="exporting()"
+            title="Export workspace package"
+            aria-label="Export workspace package"
+          >{{ exporting() ? '…' : '⬇ Export' }}</button>
+        }
+        @if (canViewReporting()) {
+          <a
+            class="header-btn"
+            routerLink="/reporting"
+            title="View KPIs & reports"
+            aria-label="View reporting"
+          >📊 Reports</a>
+        }
 
         <!-- Activity feed toggle + dropdown -->
         <div class="header-dropdown">
@@ -201,6 +250,23 @@ function peerInitials(name: string): string {
         />
       }
 
+      <!-- ── Note import wizard (H-02) ─────────────────────────── -->
+      @if (showNoteImport()) {
+        <app-note-import-wizard
+          [workspaceId]="workspaceId()"
+          (closed)="showNoteImport.set(false)"
+          (imported)="onNotesImported($event)"
+        />
+      }
+
+      <!-- ── Package import 3-way conflict dialog (H-03) ──────── -->
+      @if (conflictPrompt(); as c) {
+        <app-package-import-conflict-dialog
+          [existingName]="c.name"
+          (decide)="resolveConflict($event)"
+        />
+      }
+
       <!-- ── Footer status bar ──────────────────────────────────── -->
       <footer class="ws-footer">
         <span class="offline-badge" aria-label="App offline ready">Offline ready ✓</span>
@@ -220,9 +286,21 @@ export class WorkspaceLayoutComponent implements OnInit, OnDestroy {
   protected commentTargetId = signal<string | null>(null);
   protected showInbox     = signal(false);
   protected showActivityFeed = signal(false);
+  protected showNoteImport = signal(false);
+  protected exporting = signal(false);
+
+  /** H-03: pending conflict dialog state — resolved when the user picks a choice. */
+  protected conflictPrompt = signal<{
+    name: string;
+    resolve: (choice: ConflictChoice) => void;
+  } | null>(null);
 
   private readonly presence       = inject(PresenceService);
   private readonly commentService = inject(CommentService);
+  private readonly telemetry      = inject(TelemetryService);
+  private readonly persona        = inject(PersonaService);
+  private readonly packageService = inject(PackageService);
+  private readonly toast          = inject(ToastService);
 
   protected peers       = toSignal(this.presence.peers$, { initialValue: [] });
   protected unreadCount = toSignal(this.commentService.unreadCount$, { initialValue: 0 });
@@ -239,6 +317,12 @@ export class WorkspaceLayoutComponent implements OnInit, OnDestroy {
   // Expose helpers to template
   protected readonly peerColor    = peerColor;
   protected readonly peerInitials = peerInitials;
+
+  // H-01: persona-gated convenience actions exposed to the template
+  protected canImportNotes   = computed(() => this.persona.hasCap('import-package'));
+  protected canImportPackage = computed(() => this.persona.hasCap('import-package'));
+  protected canExport        = computed(() => this.persona.hasCap('export-package'));
+  protected canViewReporting = computed(() => this.persona.hasCap('view-reporting'));
 
   private _subs = new Subscription();
 
@@ -269,10 +353,14 @@ export class WorkspaceLayoutComponent implements OnInit, OnDestroy {
 
     // Start presence heartbeat
     this.presence.startHeartbeat();
+
+    // H-05: boot the telemetry aggregator worker for this workspace
+    this.telemetry.boot(id);
   }
 
   ngOnDestroy(): void {
     this.presence.stopHeartbeat();
+    this.telemetry.terminate();
     this._subs.unsubscribe();
   }
 
@@ -280,5 +368,83 @@ export class WorkspaceLayoutComponent implements OnInit, OnDestroy {
     this.commentTargetId.set(
       this.commentTargetId() === targetId ? null : targetId,
     );
+  }
+
+  // ── H-02: bulk note import wizard entry ────────────────────────────────
+  protected openNoteImport(): void {
+    if (!this.canImportNotes()) return;
+    this.showNoteImport.set(true);
+  }
+
+  protected onNotesImported(_count: number): void {
+    // Wizard handles its own toast; nothing to do here right now.
+  }
+
+  // ── H-03: package import with 3-way conflict resolution ────────────────
+  protected async onPackageFileSelected(e: Event): Promise<void> {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    // Reset so selecting the same file again re-triggers the flow.
+    input.value = '';
+    if (!file || !this.canImportPackage()) return;
+
+    try {
+      const result = await this.packageService.import(file, (name) =>
+        new Promise<ConflictChoice>((resolve) => {
+          this.conflictPrompt.set({ name, resolve });
+        }),
+      );
+      this.conflictPrompt.set(null);
+
+      if (result.ok) {
+        this.toast.show(
+          `Workspace ${result.action} from package.`,
+          'success',
+        );
+        // If this is the active workspace, navigate to refresh state.
+        if (result.workspaceId === this.workspaceId()) {
+          this.router.navigate(['/w', result.workspaceId]);
+        } else if (result.action === 'copied' || result.action === 'created') {
+          this.router.navigate(['/w', result.workspaceId]);
+        }
+      } else if (result.reason === 'Cancelled') {
+        this.toast.show('Package import cancelled.', 'info');
+      } else {
+        this.toast.show(result.detail ?? `Import failed: ${result.reason}`, 'error');
+      }
+    } catch (err) {
+      this.conflictPrompt.set(null);
+      this.toast.show(
+        err instanceof Error ? err.message : 'Package import failed',
+        'error',
+      );
+    }
+  }
+
+  protected resolveConflict(choice: ConflictChoice): void {
+    const pending = this.conflictPrompt();
+    if (!pending) return;
+    pending.resolve(choice);
+    // PackageService.import() will set or clear the prompt when it returns;
+    // hiding here would also work but let the importer's completion path drive it.
+  }
+
+  protected async exportPackage(): Promise<void> {
+    if (!this.canExport() || this.exporting()) return;
+    this.exporting.set(true);
+    try {
+      const result = await this.packageService.export(this.workspaceId());
+      this.toast.show(
+        result.ok ? 'Workspace exported.' : (result.detail ?? 'Export cancelled.'),
+        result.ok ? 'success' : 'info',
+      );
+    } catch (err) {
+      this.toast.show(
+        err instanceof Error ? err.message : 'Export failed',
+        'error',
+      );
+    } finally {
+      this.exporting.set(false);
+    }
   }
 }

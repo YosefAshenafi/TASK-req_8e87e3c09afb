@@ -1,9 +1,11 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { WorkspaceService } from './workspace.service';
 import { AuthService } from '../auth/auth.service';
+import { PersonaService } from '../auth/persona.service';
+import { PrefsService } from '../core/prefs.service';
 import type { WorkspaceSummary } from '../core/types';
 
 @Component({
@@ -38,7 +40,9 @@ import type { WorkspaceSummary } from '../core/types';
             </button>
             <div class="ws-actions">
               <button class="icon-btn" aria-label="Rename" (click)="startRename(ws)">✏</button>
-              <button class="icon-btn danger" aria-label="Delete" (click)="deleteWorkspace(ws.id)">🗑</button>
+              @if (canDelete()) {
+                <button class="icon-btn danger" aria-label="Delete" (click)="deleteWorkspace(ws.id)">🗑</button>
+              }
             </div>
           </li>
         }
@@ -69,6 +73,12 @@ export class WorkspacesListComponent implements OnInit {
   protected renaming = signal<WorkspaceSummary | null>(null);
   protected renameValue = '';
 
+  private readonly persona = inject(PersonaService);
+  private readonly prefs = inject(PrefsService);
+
+  // H-01: persona-gated delete control
+  protected canDelete = (): boolean => this.persona.hasCap('delete-workspace');
+
   constructor(
     protected readonly auth: AuthService,
     private readonly ws: WorkspaceService,
@@ -76,7 +86,14 @@ export class WorkspacesListComponent implements OnInit {
   ) {}
 
   async ngOnInit(): Promise<void> {
-    this.workspaces.set(await this.ws.list());
+    const list = await this.ws.list();
+    this.workspaces.set(list);
+
+    // Medium: restore the last-opened workspace when the list first loads.
+    const lastId = this.prefs.get('lastOpenedWorkspaceId');
+    if (lastId && list.some(w => w.id === lastId)) {
+      this.router.navigate(['/w', lastId]);
+    }
   }
 
   async createWorkspace(): Promise<void> {
@@ -106,6 +123,9 @@ export class WorkspacesListComponent implements OnInit {
   }
 
   async deleteWorkspace(id: string): Promise<void> {
+    // H-01: defensive capability check — template already hides the button, but the method
+    // may be invoked programmatically (e.g. tests) and must remain gated.
+    if (!this.canDelete()) return;
     if (!confirm('Delete this workspace? All data will be removed.')) return;
     await this.ws.delete(id);
     this.workspaces.set(await this.ws.list());

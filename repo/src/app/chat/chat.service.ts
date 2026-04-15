@@ -5,6 +5,7 @@ import { DbService } from '../core/db.service';
 import { BroadcastService } from '../core/broadcast.service';
 import { TabIdentityService } from '../core/tab-identity.service';
 import { AuthService } from '../auth/auth.service';
+import { TelemetryService } from '../telemetry/telemetry.service';
 import type { ChatMessage } from '../core/types';
 
 const ROLLING_WINDOW = 500;
@@ -24,6 +25,7 @@ export class ChatService {
     private readonly broadcast: BroadcastService,
     private readonly tab: TabIdentityService,
     private readonly auth: AuthService,
+    private readonly telemetry: TelemetryService,
   ) {
     this._listenForChat();
   }
@@ -91,6 +93,16 @@ export class ChatService {
     await idb.put('chat', message);
     this._appendToWindow(message);
     this.broadcast.publish({ kind: 'chat', message });
+
+    // H-05: emit telemetry for KPI aggregation (user chat only; skip system messages)
+    if (message.type === 'user' && this._workspaceId) {
+      this.telemetry.log({
+        workspaceId: this._workspaceId,
+        type: 'chat-sent',
+        payload: { profileId: message.authorId, messageId: message.id },
+      });
+    }
+
     return message;
   }
 

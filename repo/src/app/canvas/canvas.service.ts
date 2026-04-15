@@ -5,6 +5,8 @@ import * as jsonpatch from 'fast-json-patch';
 import { DbService } from '../core/db.service';
 import { BroadcastService } from '../core/broadcast.service';
 import { TabIdentityService } from '../core/tab-identity.service';
+import { AuthService } from '../auth/auth.service';
+import { TelemetryService } from '../telemetry/telemetry.service';
 import { AppException } from '../core/error';
 import type { CanvasObject, JsonPatch } from '../core/types';
 
@@ -22,6 +24,8 @@ export class CanvasService {
     private readonly db: DbService,
     private readonly broadcast: BroadcastService,
     private readonly tab: TabIdentityService,
+    private readonly auth: AuthService,
+    private readonly telemetry: TelemetryService,
   ) {
     this._listenForEdits();
   }
@@ -54,6 +58,16 @@ export class CanvasService {
     };
     await idb.put('canvas_objects', obj);
     this._objects$.next([...this._objects$.value, obj]);
+
+    // H-05: emit telemetry for KPI aggregation
+    if (obj.type === 'sticky-note') {
+      this.telemetry.log({
+        workspaceId: obj.workspaceId,
+        type: 'note-created',
+        payload: { profileId: this.auth.currentProfile?.id, objectId: obj.id },
+      });
+    }
+
     return obj;
   }
 

@@ -5,7 +5,13 @@ import type { TelemetryEvent } from '../core/types';
 
 export type WorkerMessage =
   | { kind: 'boot'; workspaceId: string; now: number }
-  | { kind: 'event-appended'; id: string }
+  | {
+      kind: 'event-appended';
+      id: string;
+      type: string;
+      workspaceId: string;
+      profileId?: string;
+    }
   | { kind: 'kpi-update'; metrics: unknown }
   | { kind: 'kpi-alert'; metric: string; value: number; threshold: number }
   | { kind: 'rollup-complete'; date: string };
@@ -51,6 +57,16 @@ export class TelemetryService {
   private async _persist(event: TelemetryEvent): Promise<void> {
     const idb = await this.db.open();
     await idb.put('events', event);
-    this._worker?.postMessage({ kind: 'event-appended', id: event.id } satisfies WorkerMessage);
+    // H-05: send the full event shape the aggregator worker expects (type, workspaceId, profileId).
+    const payload = event.payload as Record<string, unknown> | undefined;
+    const profileId =
+      typeof payload?.['profileId'] === 'string' ? (payload['profileId'] as string) : undefined;
+    this._worker?.postMessage({
+      kind: 'event-appended',
+      id: event.id,
+      type: event.type,
+      workspaceId: event.workspaceId,
+      profileId,
+    } satisfies WorkerMessage);
   }
 }

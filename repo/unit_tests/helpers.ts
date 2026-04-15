@@ -8,6 +8,7 @@ import { TabIdentityService } from '../src/app/core/tab-identity.service';
 import { BroadcastService } from '../src/app/core/broadcast.service';
 import { AuthService } from '../src/app/auth/auth.service';
 import { ChatService } from '../src/app/chat/chat.service';
+import { TelemetryService } from '../src/app/telemetry/telemetry.service';
 import type { PersonaRole } from '../src/app/core/types';
 
 export interface ServiceContext {
@@ -17,6 +18,7 @@ export interface ServiceContext {
   broadcast: BroadcastService;
   auth: AuthService;
   chat: ChatService;
+  telemetry: TelemetryService;
 }
 
 /** Create a full service context with all core dependencies wired together. */
@@ -26,8 +28,9 @@ export function makeContext(): ServiceContext {
   const tab = new TabIdentityService();
   const broadcast = new BroadcastService(tab);
   const auth = new AuthService(db, prefs);
-  const chat = new ChatService(db, broadcast, tab, auth);
-  return { db, prefs, tab, broadcast, auth, chat };
+  const telemetry = new TelemetryService(db);
+  const chat = new ChatService(db, broadcast, tab, auth, telemetry);
+  return { db, prefs, tab, broadcast, auth, chat, telemetry };
 }
 
 /** Create a profile and sign in; returns the signed-in profile. */
