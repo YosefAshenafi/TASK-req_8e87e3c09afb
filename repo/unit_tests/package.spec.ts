@@ -39,15 +39,21 @@ async function signedInCtx() {
  * NOTE: PackageService.import() only creates a workspace entry when
  * workspaces.json is ABSENT (it falls back to a stub from the manifest).
  * Omitting workspaces.json exercises the real import code path.
+ *
+ * When `wsName` is supplied it is embedded in the manifest under
+ * `workspaceName` so the importer exercises the F-H06 name-based collision
+ * rule; when undefined/empty, the importer falls back to the legacy id-based
+ * conflict check used by older tests.
  */
-async function buildPackage(workspaceId: string, _wsName: string): Promise<File> {
+async function buildPackage(workspaceId: string, wsName?: string): Promise<File> {
   const zip = new JSZip();
-  const manifest = {
+  const manifest: Record<string, unknown> = {
     schemaVersion: 1,
     workspaceId,
     exportedAt: Date.now(),
     counts: { canvas_objects: 1, comments: 0, chat: 0, mutual_help: 0, snapshots: 0, attachments: 0 },
   };
+  if (wsName) manifest['workspaceName'] = wsName;
   zip.file('manifest.json', JSON.stringify(manifest));
   // No workspaces.json → service creates stub entry in IDB from manifest
   zip.file('canvas_objects.json', JSON.stringify([
@@ -285,6 +291,77 @@ describe('PackageService', () => {
       if (outcome.ok) {
         expect(outcome.action).toBe('copied');
         expect(outcome.workspaceId).not.toBe(workspaceId);
+      }
+    });
+
+    // ── F-H06: same-NAME conflict takes precedence over same-ID ────────────
+
+    it('import() detects same-name collision even when workspace ids differ (F-H06)', async () => {
+      const ctx = await signedInCtx();
+      const sharedName = 'Design Studio';
+      const existingId = 'existing-id-1';
+      const incomingId = 'incoming-id-2';
+
+      const idb = await ctx.db.open();
+      await idb.put('workspaces', {
+        id: existingId, name: sharedName, ownerProfileId: '',
+        createdAt: 0, updatedAt: 0, version: 1,
+      });
+
+      const resolver = vi.fn(async () => 'overwrite' as const);
+      const file = await buildPackage(incomingId, sharedName);
+      const outcome = await ctx.pkg.import(file, resolver);
+
+      // Resolver was called — name collision was detected.
+      expect(resolver).toHaveBeenCalledWith(sharedName);
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok) {
+        expect(outcome.action).toBe('overwritten');
+        // Overwrite replaces the existing workspace by ID.
+        expect(outcome.workspaceId).toBe(existingId);
+      }
+    });
+
+    it('import() with no name collision creates a fresh workspace (F-H06)', async () => {
+      const ctx = await signedInCtx();
+      const idb = await ctx.db.open();
+      await idb.put('workspaces', {
+        id: 'pre-existing', name: 'Other Name', ownerProfileId: '',
+        createdAt: 0, updatedAt: 0, version: 1,
+      });
+
+      const resolver = vi.fn(async () => 'overwrite' as const);
+      const file = await buildPackage('fresh-id', 'Brand New Name');
+      const outcome = await ctx.pkg.import(file, resolver);
+
+      // No name collision → resolver is never called.
+      expect(resolver).not.toHaveBeenCalled();
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok) expect(outcome.action).toBe('created');
+    });
+
+    it('import() with same-name "copy" choice keeps the existing workspace and creates a renamed copy (F-H06)', async () => {
+      const ctx = await signedInCtx();
+      const sharedName = 'Team Board';
+      const existingId = 'existing-id-3';
+
+      const idb = await ctx.db.open();
+      await idb.put('workspaces', {
+        id: existingId, name: sharedName, ownerProfileId: '',
+        createdAt: 0, updatedAt: 0, version: 1,
+      });
+
+      const file = await buildPackage('new-id', sharedName);
+      const outcome = await ctx.pkg.import(file, async () => 'copy');
+      expect(outcome.ok).toBe(true);
+      if (outcome.ok) {
+        expect(outcome.action).toBe('copied');
+        // Copy uses a fresh UUID, not the existing one.
+        expect(outcome.workspaceId).not.toBe(existingId);
+
+        // Existing workspace is still present under its original id/name.
+        const still = await idb.get('workspaces', existingId);
+        expect(still?.name).toBe(sharedName);
       }
     });
   });

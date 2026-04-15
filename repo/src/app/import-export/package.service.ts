@@ -9,6 +9,12 @@ const MAX_PACKAGE_BYTES = 200 * 1024 * 1024; // 200 MB
 interface PackageManifest {
   schemaVersion: 1;
   workspaceId: string;
+  /**
+   * F-H06: include the source workspace name in the manifest so the import
+   * side can enforce the prompt's same-name conflict rule without having to
+   * parse workspaces.json.
+   */
+  workspaceName?: string;
   exportedAt: number;
   counts: Record<string, number>;
 }
@@ -73,6 +79,7 @@ export class PackageService {
     const manifest: PackageManifest = {
       schemaVersion: 1,
       workspaceId,
+      workspaceName: workspace.name,
       exportedAt: Date.now(),
       counts,
     };
@@ -148,9 +155,36 @@ export class PackageService {
       return { ok: false, reason: 'Unsupported', detail: `Unknown schema version: ${manifest.schemaVersion}` };
     }
 
-    // Check for same-name collision
+    // F-H06: detect conflicts by workspace NAME first (the prompt rule),
+    // falling back to workspace-id collision for legacy packages that have
+    // no workspaceName and no workspaces.json to source one from.
     const idb = await this.db.open();
-    const existing = await idb.get('workspaces', manifest.workspaceId);
+
+    // Peek at workspaces.json ahead of the main read so the conflict-detection
+    // step knows the incoming name before prompting the user.
+    let incomingName: string | undefined = manifest.workspaceName;
+    const wsFilePeek = zip.file('workspaces.json');
+    if (!incomingName && wsFilePeek) {
+      try {
+        const raw = JSON.parse(await wsFilePeek.async('text')) as unknown;
+        const rows = Array.isArray(raw) ? raw : [raw];
+        const first = rows[0] as { name?: string } | undefined;
+        if (first?.name) incomingName = first.name;
+      } catch {
+        // ignore — fall back to id-based detection below
+      }
+    }
+
+    let existing: { id: string; name: string } | undefined;
+    if (incomingName) {
+      const all = await idb.getAll('workspaces');
+      existing = all.find(w => w.name === incomingName) as { id: string; name: string } | undefined;
+    }
+    if (!existing) {
+      // Legacy fallback: same-id collision for packages with no name info.
+      existing = (await idb.get('workspaces', manifest.workspaceId)) as { id: string; name: string } | undefined;
+    }
+
     let action: 'created' | 'overwritten' | 'copied' = existing ? 'overwritten' : 'created';
     let targetWorkspaceId = manifest.workspaceId;
 
@@ -177,6 +211,9 @@ export class PackageService {
         targetWorkspaceId = crypto.randomUUID();
       } else {
         action = 'overwritten';
+        // F-H06: when overwriting, replace the existing workspace by ID so
+        // downstream consumers that key off the existing id keep working.
+        targetWorkspaceId = existing.id;
       }
     }
 
@@ -220,10 +257,19 @@ export class PackageService {
       'readwrite',
     );
 
+    // F-H06: rewrite imported workspace/row IDs whenever the target id
+    // differs from the manifest id. This covers both 'copied' (new uuid) and
+    // name-based 'overwritten' (existing id may differ from manifest id).
+    const rewriteIds = targetWorkspaceId !== manifest.workspaceId;
+
     if (!workspaceRowsFromFile) {
       await tx.objectStore('workspaces').put({
         id: targetWorkspaceId,
-        name: existing ? `${existing.name} (imported ${importDate})` : `Imported ${importDate}`,
+        name: existing
+          ? (action === 'copied'
+              ? `${existing.name} (imported ${importDate})`
+              : existing.name)
+          : (incomingName ?? `Imported ${importDate}`),
         ownerProfileId: '',
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -233,7 +279,10 @@ export class PackageService {
       const wsStore = tx.objectStore('workspaces');
       for (const w of workspaceRowsFromFile) {
         const row = { ...w } as Record<string, unknown>;
-        if (action === 'copied') (row as { id: string }).id = targetWorkspaceId;
+        if (rewriteIds) (row as { id: string }).id = targetWorkspaceId;
+        if (action === 'copied' && existing) {
+          (row as { name: string }).name = `${existing.name} (imported ${importDate})`;
+        }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (wsStore as any).put(row);
       }
@@ -242,7 +291,7 @@ export class PackageService {
     for (const [store, rows] of storeRows) {
       const st = tx.objectStore(store as 'canvas_objects');
       for (const row of rows) {
-        if (action === 'copied') (row as { workspaceId: string }).workspaceId = targetWorkspaceId;
+        if (rewriteIds) (row as { workspaceId: string }).workspaceId = targetWorkspaceId;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (st as any).put(row);
       }

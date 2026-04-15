@@ -88,9 +88,53 @@ export class SnapshotService {
       state = jsonpatch.applyPatch(state, snap.patch as jsonpatch.Operation[], false, false).newDocument;
     }
 
+    // F-B01: restore the rolled-back state to the live stores so the canvas
+    // and mutual-help UIs actually reflect the snapshot, not just the
+    // snapshot log. Supported top-level keys are 'canvas' and 'mutualHelp'.
+    await this._restoreLiveStores(workspaceId, state);
+
     // Write the rolled-back state as the new head
     await this._writeSnapshot(workspaceId, state, sorted.length + 1);
     await this.chat.postSystem(`Workspace rolled back to snapshot #${seq}.`);
+  }
+
+  private async _restoreLiveStores(
+    workspaceId: string,
+    state: Record<string, unknown>,
+  ): Promise<void> {
+    const idb = await this.db.open();
+
+    // Canvas objects — replace all for this workspace.
+    if (Array.isArray(state['canvas'])) {
+      const tx = idb.transaction('canvas_objects', 'readwrite');
+      const store = tx.objectStore('canvas_objects');
+      const existing = await store.index('by_workspace').getAll(workspaceId);
+      for (const row of existing) {
+        const rowId = (row as { id: string }).id;
+        if (rowId) await store.delete(rowId);
+      }
+      for (const row of state['canvas'] as Array<Record<string, unknown>>) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (store as any).put(row);
+      }
+      await tx.done;
+    }
+
+    // Mutual-help posts — replace all for this workspace.
+    if (Array.isArray(state['mutualHelp'])) {
+      const tx = idb.transaction('mutual_help', 'readwrite');
+      const store = tx.objectStore('mutual_help');
+      const existing = await store.index('by_workspace').getAll(workspaceId);
+      for (const row of existing) {
+        const rowId = (row as { id: string }).id;
+        if (rowId) await store.delete(rowId);
+      }
+      for (const row of state['mutualHelp'] as Array<Record<string, unknown>>) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (store as any).put(row);
+      }
+      await tx.done;
+    }
   }
 
   private async _doTick(state: Record<string, unknown>): Promise<void> {

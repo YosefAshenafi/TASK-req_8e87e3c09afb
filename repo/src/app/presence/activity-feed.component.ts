@@ -61,7 +61,15 @@ function relativeTime(at: number): string {
             <div class="entry-content">
               <div class="entry-action">
                 {{ entry.action }}
-                @if (entry.objectType) {
+                @if (entry.objectId) {
+                  <!-- F-H04: clickable object link navigates back to the object -->
+                  <button
+                    type="button"
+                    class="object-link"
+                    (click)="openObject(entry)"
+                    [title]="'Open ' + (entry.objectType ?? 'object')"
+                  >{{ entry.objectType ?? 'object' }}</button>
+                } @else if (entry.objectType) {
                   <span class="object-type">{{ entry.objectType }}</span>
                 }
               </div>
@@ -84,12 +92,16 @@ function relativeTime(at: number): string {
     .entry-content { flex:1; min-width:0; }
     .entry-action { font-size:0.82rem; color:#333; line-height:1.3; word-break:break-word; }
     .object-type { font-size:0.78rem; color:#aaa; margin-left:4px; font-style:italic; }
+    .object-link { font-size:0.78rem; color:#1565c0; margin-left:4px; background:none; border:none; padding:0; cursor:pointer; text-decoration:underline; font-family:inherit; }
+    .object-link:hover { color:#0d47a1; }
     .entry-time { font-size:0.68rem; color:#aaa; margin-top:2px; }
     .empty-state { color:#bbb; text-align:center; padding:24px; font-size:0.84rem; margin:auto; }
   `],
 })
 export class ActivityFeedComponent {
   @Output() closed = new EventEmitter<void>();
+  /** F-H04: emitted when a feed object link is clicked, so the parent can open the object (e.g. comment drawer). */
+  @Output() objectOpened = new EventEmitter<{ objectId: string; objectType?: string }>();
 
   private readonly presenceService = inject(PresenceService);
   private readonly allActivity = toSignal(this.presenceService.activity$, { initialValue: [] as ActivityEntry[] });
@@ -102,5 +114,10 @@ export class ActivityFeedComponent {
 
   protected timeLabel(at: number): string {
     return relativeTime(at);
+  }
+
+  protected openObject(entry: ActivityEntry): void {
+    if (!entry.objectId) return;
+    this.objectOpened.emit({ objectId: entry.objectId, objectType: entry.objectType });
   }
 }

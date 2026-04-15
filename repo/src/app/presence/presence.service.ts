@@ -1,5 +1,6 @@
 import { Injectable, OnDestroy } from '@angular/core';
 import { BehaviorSubject, Observable, interval, Subscription } from 'rxjs';
+import { v4 as uuidv4 } from 'uuid';
 import { BroadcastService } from '../core/broadcast.service';
 import { TabIdentityService } from '../core/tab-identity.service';
 import { AuthService } from '../auth/auth.service';
@@ -64,6 +65,24 @@ export class PresenceService implements OnDestroy {
     const current = [full, ...this._activity$.value].slice(0, MAX_ACTIVITY_ENTRIES);
     this._activity$.next(current);
     this.broadcast.publish({ kind: 'activity', entry: full });
+  }
+
+  /**
+   * F-H04: convenience wrapper that fills in id/tabId/profileId so call sites
+   * (CanvasService, CommentService, MutualHelpService) only need to supply the
+   * user-meaningful fields (action + optional object link).
+   */
+  logActivity(action: string, objectId?: string, objectType?: string): void {
+    const profile = this.auth.currentProfile;
+    if (!profile) return;
+    this.recordActivity({
+      id: uuidv4(),
+      tabId: this.tab.tabId,
+      profileId: profile.id,
+      action,
+      objectId,
+      objectType,
+    });
   }
 
   private _sendPresence(status: 'online' | 'away' | 'leaving'): void {

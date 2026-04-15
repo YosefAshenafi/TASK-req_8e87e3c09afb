@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Inject, Injectable, Optional } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 import * as jsonpatch from 'fast-json-patch';
@@ -7,6 +7,7 @@ import { BroadcastService } from '../core/broadcast.service';
 import { TabIdentityService } from '../core/tab-identity.service';
 import { AuthService } from '../auth/auth.service';
 import { TelemetryService } from '../telemetry/telemetry.service';
+import { PresenceService } from '../presence/presence.service';
 import { AppException } from '../core/error';
 import type { CanvasObject, JsonPatch } from '../core/types';
 
@@ -20,12 +21,20 @@ export class CanvasService {
     return this._objects$.asObservable();
   }
 
+  /** F-B01: synchronous snapshot of the current canvas objects (used by snapshot autosave). */
+  get objectsValue(): CanvasObject[] {
+    return this._objects$.value;
+  }
+
   constructor(
     private readonly db: DbService,
     private readonly broadcast: BroadcastService,
     private readonly tab: TabIdentityService,
     private readonly auth: AuthService,
     private readonly telemetry: TelemetryService,
+    // F-H04: presence is optional so existing unit tests that construct
+    // CanvasService without it keep working; production DI always supplies it.
+    @Optional() @Inject(PresenceService) private readonly presence: PresenceService | null = null,
   ) {
     this._listenForEdits();
   }
@@ -67,6 +76,10 @@ export class CanvasService {
         payload: { profileId: this.auth.currentProfile?.id, objectId: obj.id },
       });
     }
+
+    // F-H04: feed the activity log so the recent-actions panel is populated.
+    const label = obj.type === 'sticky-note' ? 'created a sticky note' : `added a ${obj.type}`;
+    this.presence?.logActivity(label, obj.id, obj.type);
 
     return obj;
   }
@@ -138,6 +151,9 @@ export class CanvasService {
     }
     await idb.delete('canvas_objects', id);
     this._objects$.next(this._objects$.value.filter(o => o.id !== id));
+
+    // F-H04: record deletion in the activity log
+    this.presence?.logActivity(`deleted a ${existing.type}`, id, existing.type);
   }
 
   // ── Incoming broadcast edits ────────────────────────────────────────────

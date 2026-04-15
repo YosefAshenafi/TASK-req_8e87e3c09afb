@@ -583,9 +583,20 @@ export class CanvasComponent implements OnInit, AfterViewInit, OnDestroy {
     if (e.button !== 0) return;
 
     const tool = this.activeTool();
-    if (tool === 'select') return;
 
     const { x, y } = this._canvasCoords(e);
+
+    // ── Select — F-B03: hit-test any non-note shape so the comment drawer
+    //    can be opened on rectangles/circles/arrows/connectors/freehand too.
+    //    Sticky notes are DOM elements and capture their own mousedown in
+    //    onNoteDragStart; reaching here for a sticky note means the click
+    //    landed on empty canvas, so we clear selection.
+    if (tool === 'select') {
+      const hit = this._hitTestNonNote(x, y);
+      this.selectedId.set(hit?.id ?? null);
+      this._redrawShapes();
+      return;
+    }
 
     // ── Erase ──
     if (tool === 'erase') {
@@ -819,6 +830,15 @@ export class CanvasComponent implements OnInit, AfterViewInit, OnDestroy {
   /** Bounding-box hit test — returns topmost (highest zIndex) shape at (x, y). */
   private _hitTest(x: number, y: number): CanvasObject | null {
     return [...this._allObjects()]
+      .sort((a, b) => b.zIndex - a.zIndex)
+      .find(o => x >= o.x && x <= o.x + o.width && y >= o.y && y <= o.y + o.height)
+      ?? null;
+  }
+
+  /** F-B03: hit test that excludes sticky notes (they are DOM and handle their own selection). */
+  private _hitTestNonNote(x: number, y: number): CanvasObject | null {
+    return [...this._allObjects()]
+      .filter(o => o.type !== 'sticky-note')
       .sort((a, b) => b.zIndex - a.zIndex)
       .find(o => x >= o.x && x <= o.x + o.width && y >= o.y && y <= o.y + o.height)
       ?? null;

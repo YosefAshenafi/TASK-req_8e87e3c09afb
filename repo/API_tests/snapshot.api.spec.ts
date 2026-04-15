@@ -122,4 +122,71 @@ describe('Snapshot API — full lifecycle', () => {
     ctx.snapshot.stopAutoSave();
     ctx.snapshot.stopAutoSave();
   });
+
+  // ── F-B01: rollback restores live stores ─────────────────────────────
+
+  it('rollback restores canvas_objects and mutual_help to the checkpoint state (F-B01)', async () => {
+    vi.useFakeTimers();
+
+    const noteA = {
+      id: 'note-a', workspaceId: WS, type: 'sticky-note', text: 'A',
+      x: 0, y: 0, width: 160, height: 120, zIndex: 0, version: 1,
+      createdAt: 0, updatedAt: 0, lastEditedBy: 't1',
+    };
+    const postA = {
+      id: 'post-a', workspaceId: WS, status: 'active',
+      type: 'offer', category: 'c', title: 'A', description: 'A',
+      tags: [], attachmentIds: [], authorId: 'u1',
+      urgency: 'low', pinned: false, expiresAt: 0,
+      createdAt: 0, updatedAt: 0, version: 1,
+    };
+    let state: Record<string, unknown> = { canvas: [noteA], mutualHelp: [postA] };
+
+    ctx.snapshot.markDirty();
+    ctx.snapshot.startAutoSave(WS, () => state);
+    await vi.advanceTimersByTimeAsync(1_100); // seq=1 checkpoint
+
+    // Seed the LIVE stores with divergent state that the rollback must undo.
+    const idb = await ctx.db.open();
+    await idb.put('canvas_objects', { ...noteA, id: 'note-b', text: 'B' });
+    await idb.delete('canvas_objects', 'note-a');
+    await idb.put('mutual_help', { ...postA, id: 'post-b', title: 'B' });
+    await idb.delete('mutual_help', 'post-a');
+
+    ctx.snapshot.stopAutoSave();
+    vi.useRealTimers();
+
+    await ctx.snapshot.rollbackTo(WS, 1);
+
+    const restoredCanvas = await idb.getAllFromIndex('canvas_objects', 'by_workspace', WS);
+    expect(restoredCanvas.map(o => o.id).sort()).toEqual(['note-a']);
+
+    const restoredPosts = await idb.getAllFromIndex('mutual_help', 'by_workspace', WS);
+    expect(restoredPosts.map(p => p.id).sort()).toEqual(['post-a']);
+  });
+
+  it('rollback is a no-op for stores whose state key is absent', async () => {
+    vi.useFakeTimers();
+
+    // State shape without canvas/mutualHelp keys — _restoreLiveStores should
+    // simply skip both stores.
+    ctx.snapshot.markDirty();
+    ctx.snapshot.startAutoSave(WS, () => ({ unrelated: 1 }));
+    await vi.advanceTimersByTimeAsync(1_100);
+
+    const idb = await ctx.db.open();
+    await idb.put('canvas_objects', {
+      id: 'keepme', workspaceId: WS, type: 'sticky-note', text: 'x',
+      x: 0, y: 0, width: 10, height: 10, zIndex: 0, version: 1,
+      createdAt: 0, updatedAt: 0, lastEditedBy: 't',
+    });
+
+    ctx.snapshot.stopAutoSave();
+    vi.useRealTimers();
+
+    await ctx.snapshot.rollbackTo(WS, 1);
+
+    const stillThere = await idb.get('canvas_objects', 'keepme');
+    expect(stillThere?.id).toBe('keepme');
+  });
 });

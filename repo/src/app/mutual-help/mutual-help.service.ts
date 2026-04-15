@@ -1,10 +1,11 @@
-import { Injectable } from '@angular/core';
+import { Inject, Injectable, Optional } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 import { DbService } from '../core/db.service';
 import { BroadcastService } from '../core/broadcast.service';
 import { TelemetryService } from '../telemetry/telemetry.service';
 import { AuthService } from '../auth/auth.service';
+import { PresenceService } from '../presence/presence.service';
 import { AppException } from '../core/error';
 import type { MutualHelpPost, NewPostInput } from '../core/types';
 
@@ -21,11 +22,19 @@ export class MutualHelpService {
     return this._posts$.asObservable();
   }
 
+  /** F-B01: synchronous snapshot of the current posts (used by snapshot autosave). */
+  get postsValue(): MutualHelpPost[] {
+    return this._posts$.value;
+  }
+
   constructor(
     private readonly db: DbService,
     private readonly broadcast: BroadcastService,
     private readonly telemetry: TelemetryService,
     private readonly auth: AuthService,
+    // F-H04: presence is optional so existing unit tests that construct the
+    // service without it still work. Production DI always supplies it.
+    @Optional() @Inject(PresenceService) private readonly presence: PresenceService | null = null,
   ) {}
 
   async loadForWorkspace(workspaceId: string): Promise<void> {
@@ -54,7 +63,8 @@ export class MutualHelpService {
       budget: input.budget,
       urgency: input.urgency,
       attachmentIds: input.attachmentIds ?? [],
-      authorId: '',
+      // F-B02: persist real author identity so draft/edit/withdraw ownership gating works.
+      authorId: this.auth.currentProfile?.id ?? '',
       pinned: false,
       expiresAt: now + (input.expiresIn ?? DEFAULT_EXPIRY_MS),
       createdAt: now,
@@ -74,6 +84,8 @@ export class MutualHelpService {
       type: 'mutual-help-published',
       payload: { profileId: this.auth.currentProfile?.id, postId },
     });
+    // F-H04: record activity for the feed
+    this.presence?.logActivity(`published "${updated.title}"`, postId, 'mutual-help-post');
     return updated;
   }
 
@@ -93,11 +105,16 @@ export class MutualHelpService {
         incoming: baseVersion,
       });
     }
-    return this._transition(postId, patch);
+    const updated = await this._transition(postId, patch);
+    // F-H04: record edit in the activity feed
+    this.presence?.logActivity(`edited "${updated.title}"`, postId, 'mutual-help-post');
+    return updated;
   }
 
   async withdraw(postId: string): Promise<void> {
-    await this._transition(postId, { status: 'withdrawn' });
+    const updated = await this._transition(postId, { status: 'withdrawn' });
+    // F-H04: record withdraw in the activity feed
+    this.presence?.logActivity(`withdrew "${updated.title}"`, postId, 'mutual-help-post');
   }
 
   async pin(postId: string, pinned: boolean): Promise<void> {

@@ -104,6 +104,33 @@ describe('PresenceService', () => {
     });
   });
 
+  // ── F-H04: logActivity convenience wrapper ───────────────────────────────
+
+  describe('logActivity()', () => {
+    it('fills in id, tabId, and profileId from the current context', async () => {
+      presence.logActivity('note.created', 'obj-42', 'sticky-note');
+
+      const activity = await firstValueFrom(presence.activity$);
+      expect(activity).toHaveLength(1);
+      expect(activity[0].action).toBe('note.created');
+      expect(activity[0].objectId).toBe('obj-42');
+      expect(activity[0].objectType).toBe('sticky-note');
+      expect(activity[0].tabId).toBe(ctx.tab.tabId);
+      expect(activity[0].profileId).toBe(ctx.auth.currentProfile!.id);
+      expect(activity[0].id).toBeTruthy();
+    });
+
+    it('is a no-op when no profile is signed in', async () => {
+      // Replace the existing service with one attached to a pristine auth
+      // that has no currentProfile.
+      const ctxEmpty = makeContext();
+      const presence2 = new PresenceService(ctxEmpty.broadcast, ctxEmpty.tab, ctxEmpty.auth);
+      presence2.logActivity('ignored');
+      const activity = await firstValueFrom(presence2.activity$);
+      expect(activity).toEqual([]);
+    });
+  });
+
   // ── broadcastCursor ───────────────────────────────────────────────────────
 
   describe('broadcastCursor()', () => {

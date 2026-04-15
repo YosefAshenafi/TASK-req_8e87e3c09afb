@@ -153,5 +153,56 @@ describe('SnapshotService', () => {
       const list = await snap.listSnapshots(WS);
       expect(list.length).toBeGreaterThan(2); // new snapshot added
     });
+
+    // ── F-B01: rollback restores live stores ────────────────────────────
+
+    it('rollback restores canvas_objects and mutual_help to the checkpoint (F-B01)', async () => {
+      vi.useFakeTimers();
+
+      // Seed the checkpoint state: canvas has note A and mutual-help has post A.
+      const noteA = {
+        id: 'note-a', workspaceId: WS, type: 'sticky-note', text: 'A',
+        x: 0, y: 0, width: 160, height: 120, zIndex: 0, version: 1,
+        createdAt: 0, updatedAt: 0, lastEditedBy: 't1',
+      };
+      const postA = {
+        id: 'post-a', workspaceId: WS, status: 'active',
+        type: 'offer', category: 'c', title: 'A', description: 'A',
+        tags: [], attachmentIds: [], authorId: 'u1',
+        urgency: 'low', pinned: false, expiresAt: 0,
+        createdAt: 0, updatedAt: 0, version: 1,
+      };
+      let state: Record<string, unknown> = { canvas: [noteA], mutualHelp: [postA] };
+
+      snap.markDirty();
+      snap.startAutoSave(WS, () => state);
+      await vi.advanceTimersByTimeAsync(1_100); // seq=1 checkpoint
+
+      // Seed the LIVE stores with the post-change state (note B / post B only).
+      const idb = await ctx.db.open();
+      await idb.put('canvas_objects', {
+        ...noteA, id: 'note-b', text: 'B',
+      });
+      await idb.delete('canvas_objects', 'note-a');
+      await idb.put('mutual_help', {
+        ...postA, id: 'post-b', title: 'B',
+      });
+      await idb.delete('mutual_help', 'post-a');
+
+      snap.stopAutoSave();
+      vi.useRealTimers();
+
+      // Rollback to seq 1 — state should restore note A / post A in the
+      // live stores and remove note B / post B.
+      await snap.rollbackTo(WS, 1);
+
+      const restoredCanvas = await idb.getAllFromIndex('canvas_objects', 'by_workspace', WS);
+      const ids = restoredCanvas.map(o => o.id).sort();
+      expect(ids).toEqual(['note-a']);
+
+      const restoredPosts = await idb.getAllFromIndex('mutual_help', 'by_workspace', WS);
+      const postIds = restoredPosts.map(p => p.id).sort();
+      expect(postIds).toEqual(['post-a']);
+    });
   });
 });

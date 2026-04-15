@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Inject, Injectable, Optional } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 import { DbService } from '../core/db.service';
@@ -6,6 +6,7 @@ import { BroadcastService } from '../core/broadcast.service';
 import { TabIdentityService } from '../core/tab-identity.service';
 import { AuthService } from '../auth/auth.service';
 import { TelemetryService } from '../telemetry/telemetry.service';
+import { PresenceService } from '../presence/presence.service';
 import { ToastService } from '../core/toast.service';
 import { AppException } from '../core/error';
 import type { CommentThread, InboxItem, Reply } from '../core/types';
@@ -34,6 +35,8 @@ export class CommentService {
     private readonly auth: AuthService,
     private readonly telemetry: TelemetryService,
     private readonly toast: ToastService,
+    // F-H04: presence is optional so existing unit tests work unchanged.
+    @Optional() @Inject(PresenceService) private readonly presence: PresenceService | null = null,
   ) {
     this._listenForComments();
   }
@@ -130,6 +133,10 @@ export class CommentService {
       type: 'comment-added',
       payload: { profileId: currentProfileId, threadId, replyId: reply.id },
     });
+
+    // F-H04: record activity so the feed picks up new comments with an
+    // object link back to the canvas target that owns the thread.
+    this.presence?.logActivity('commented on', thread.targetId, 'comment');
 
     return reply;
   }

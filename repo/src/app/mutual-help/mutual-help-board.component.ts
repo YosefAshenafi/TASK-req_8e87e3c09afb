@@ -87,6 +87,7 @@ type FilterTab = 'all' | 'active' | 'draft' | 'closed';
               >{{ post.pinned ? '📌' : '📍' }}</button>
 
               @if ((post.status === 'active' || post.status === 'draft') && post.authorId === profileId) {
+                <button class="action-btn edit-btn" (click)="editPost(post)">Edit</button>
                 <button class="action-btn withdraw-btn" (click)="withdrawPost(post)">Withdraw</button>
               }
 
@@ -100,12 +101,13 @@ type FilterTab = 'all' | 'active' | 'draft' | 'closed';
         }
       </div>
 
-      @if (showForm()) {
+      @if (showForm() || editingPost()) {
         <app-mutual-help-form
           [workspaceId]="workspaceId"
           [profileId]="profileId"
+          [post]="editingPost()"
           (saved)="onFormSaved()"
-          (cancelled)="showForm.set(false)"
+          (cancelled)="onFormCancelled()"
         />
       }
     </div>
@@ -145,6 +147,8 @@ type FilterTab = 'all' | 'active' | 'draft' | 'closed';
     .withdraw-btn:hover { background:#ffebee; }
     .publish-btn { color:#1565c0; border-color:#bbdefb; font-weight:600; }
     .publish-btn:hover { background:#e3f0fd; }
+    .edit-btn { color:#6a1b9a; border-color:#e1bee7; }
+    .edit-btn:hover { background:#f3e5f5; }
     .empty-state { color:#bbb; text-align:center; padding:40px; font-size:0.9rem; }
   `],
 })
@@ -155,6 +159,8 @@ export class MutualHelpBoardComponent implements OnInit, OnDestroy {
   protected readonly filterTabs: FilterTab[] = ['all', 'active', 'draft', 'closed'];
   protected readonly activeFilter = signal<FilterTab>('all');
   protected readonly showForm = signal(false);
+  /** F-B02: when non-null, the form is shown in edit-mode for this post. */
+  protected readonly editingPost = signal<MutualHelpPost | null>(null);
 
   private readonly allPosts = signal<MutualHelpPost[]>([]);
 
@@ -243,7 +249,18 @@ export class MutualHelpBoardComponent implements OnInit, OnDestroy {
     }
   }
 
+  /** F-B02: open form pre-populated for editing an existing post. */
+  protected editPost(post: MutualHelpPost): void {
+    this.editingPost.set(post);
+  }
+
   protected onFormSaved(): void {
     this.showForm.set(false);
+    this.editingPost.set(null);
+  }
+
+  protected onFormCancelled(): void {
+    this.showForm.set(false);
+    this.editingPost.set(null);
   }
 }

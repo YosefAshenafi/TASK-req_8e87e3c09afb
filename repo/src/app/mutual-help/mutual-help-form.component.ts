@@ -1,6 +1,7 @@
 import {
   Component,
   Input,
+  OnInit,
   Output,
   EventEmitter,
   signal,
@@ -10,7 +11,7 @@ import { FormsModule } from '@angular/forms';
 import { MutualHelpService } from './mutual-help.service';
 import { ToastService } from '../core/toast.service';
 import { AttachmentService, MAX_ATTACHMENT_BYTES } from '../core/attachment.service';
-import type { NewPostInput } from '../core/types';
+import type { MutualHelpPost, NewPostInput } from '../core/types';
 
 interface PostForm {
   type: 'request' | 'offer';
@@ -33,7 +34,7 @@ interface PostForm {
     <div class="modal-overlay" (click)="onOverlayClick($event)">
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="form-title">
         <div class="modal-header">
-          <h3 id="form-title" class="modal-title">New Post</h3>
+          <h3 id="form-title" class="modal-title">{{ post ? 'Edit Post' : 'New Post' }}</h3>
           <button class="close-btn" (click)="cancelled.emit()" aria-label="Close">×</button>
         </div>
 
@@ -198,18 +199,27 @@ interface PostForm {
               (click)="cancelled.emit()"
               [disabled]="submitting()"
             >Cancel</button>
-            <button
-              type="submit"
-              class="btn btn-outline"
-              (click)="form.action = 'draft'"
-              [disabled]="submitting()"
-            >{{ submitting() && form.action === 'draft' ? 'Saving…' : 'Save Draft' }}</button>
-            <button
-              type="submit"
-              class="btn btn-primary"
-              (click)="form.action = 'publish'"
-              [disabled]="submitting()"
-            >{{ submitting() && form.action === 'publish' ? 'Publishing…' : 'Publish Now' }}</button>
+            @if (post) {
+              <button
+                type="submit"
+                class="btn btn-primary"
+                (click)="form.action = 'draft'"
+                [disabled]="submitting()"
+              >{{ submitting() ? 'Saving…' : 'Save Changes' }}</button>
+            } @else {
+              <button
+                type="submit"
+                class="btn btn-outline"
+                (click)="form.action = 'draft'"
+                [disabled]="submitting()"
+              >{{ submitting() && form.action === 'draft' ? 'Saving…' : 'Save Draft' }}</button>
+              <button
+                type="submit"
+                class="btn btn-primary"
+                (click)="form.action = 'publish'"
+                [disabled]="submitting()"
+              >{{ submitting() && form.action === 'publish' ? 'Publishing…' : 'Publish Now' }}</button>
+            }
           </div>
         </form>
       </div>
@@ -253,9 +263,11 @@ interface PostForm {
     .btn-primary:hover:not(:disabled) { background:#1565c0; }
   `],
 })
-export class MutualHelpFormComponent {
+export class MutualHelpFormComponent implements OnInit {
   @Input() workspaceId = '';
   @Input() profileId = '';
+  /** F-B02: when provided, the form is in edit mode and saves via MutualHelpService.edit(). */
+  @Input() post: MutualHelpPost | null = null;
   @Output() saved = new EventEmitter<void>();
   @Output() cancelled = new EventEmitter<void>();
 
@@ -276,6 +288,27 @@ export class MutualHelpFormComponent {
   protected readonly errorMsg = signal('');
   protected readonly attachmentFiles = signal<File[]>([]);
   protected readonly maxFileMb = MAX_ATTACHMENT_BYTES / 1024 / 1024;
+
+  ngOnInit(): void {
+    // F-B02: preload the form when editing an existing post.
+    if (this.post) {
+      this.form = {
+        type: this.post.type,
+        category: this.post.category,
+        title: this.post.title,
+        description: this.post.description,
+        tagsInput: this.post.tags.join(', '),
+        timeWindow: this.post.timeWindow ?? '',
+        budget: this.post.budget ?? '',
+        urgency: this.post.urgency,
+        expiresIn: Math.max(
+          1,
+          Math.round((this.post.expiresAt - Date.now()) / (60 * 60 * 1000)),
+        ),
+        action: 'draft',
+      };
+    }
+  }
 
   constructor(
     private readonly mutualHelpService: MutualHelpService,
@@ -343,27 +376,47 @@ export class MutualHelpFormComponent {
         attachmentIds.push(id);
       }
 
-      const input: NewPostInput = {
-        workspaceId: this.workspaceId,
-        type: this.form.type,
-        category: this.form.category.trim(),
-        title: this.form.title.trim(),
-        description: this.form.description.trim(),
-        tags,
-        timeWindow: this.form.timeWindow.trim() || undefined,
-        budget: this.form.budget.trim() || undefined,
-        urgency: this.form.urgency,
-        attachmentIds,
-        expiresIn: this.form.expiresIn * 60 * 60 * 1000,
-      };
+      if (this.post) {
+        // F-B02: edit existing post through the service with version handling.
+        await this.mutualHelpService.edit(
+          this.post.id,
+          {
+            type: this.form.type,
+            category: this.form.category.trim(),
+            title: this.form.title.trim(),
+            description: this.form.description.trim(),
+            tags,
+            timeWindow: this.form.timeWindow.trim() || undefined,
+            budget: this.form.budget.trim() || undefined,
+            urgency: this.form.urgency,
+            attachmentIds: [...this.post.attachmentIds, ...attachmentIds],
+          },
+          this.post.version,
+        );
+        this.toastService.show('Post updated.', 'success');
+      } else {
+        const input: NewPostInput = {
+          workspaceId: this.workspaceId,
+          type: this.form.type,
+          category: this.form.category.trim(),
+          title: this.form.title.trim(),
+          description: this.form.description.trim(),
+          tags,
+          timeWindow: this.form.timeWindow.trim() || undefined,
+          budget: this.form.budget.trim() || undefined,
+          urgency: this.form.urgency,
+          attachmentIds,
+          expiresIn: this.form.expiresIn * 60 * 60 * 1000,
+        };
 
-      const post = await this.mutualHelpService.createDraft(input);
+        const post = await this.mutualHelpService.createDraft(input);
 
-      if (this.form.action === 'publish') {
-        await this.mutualHelpService.publish(post.id);
+        if (this.form.action === 'publish') {
+          await this.mutualHelpService.publish(post.id);
+        }
+
+        this.toastService.show('Post created!', 'success');
       }
-
-      this.toastService.show('Post created!', 'success');
       this.saved.emit();
     } catch {
       this.errorMsg.set('Failed to save post. Please try again.');

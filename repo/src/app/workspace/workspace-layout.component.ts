@@ -29,6 +29,10 @@ import { MutualHelpBoardComponent } from '../mutual-help/mutual-help-board.compo
 import { ActivityFeedComponent } from '../presence/activity-feed.component';
 import { NoteImportWizardComponent } from '../import-export/note-import-wizard.component';
 import { PackageImportConflictDialogComponent } from '../import-export/package-import-conflict-dialog.component';
+import { SnapshotPanelComponent } from '../snapshot/snapshot-panel.component';
+import { SnapshotService } from '../snapshot/snapshot.service';
+import { CanvasService } from '../canvas/canvas.service';
+import { MutualHelpService } from '../mutual-help/mutual-help.service';
 import type { Workspace } from '../core/types';
 import type { ConflictChoice } from '../import-export/package.service';
 
@@ -65,6 +69,7 @@ function peerInitials(name: string): string {
     ActivityFeedComponent,
     NoteImportWizardComponent,
     PackageImportConflictDialogComponent,
+    SnapshotPanelComponent,
   ],
   template: `
     <div class="workspace-shell" [attr.data-workspace-id]="workspaceId()">
@@ -154,6 +159,34 @@ function peerInitials(name: string): string {
           >📊 Reports</a>
         }
 
+        <!-- F-B01: Snapshots toggle + dropdown -->
+        <div class="header-dropdown">
+          <button
+            class="header-btn"
+            [class.active]="showSnapshots()"
+            (click)="showSnapshots.update(v => !v)"
+            aria-label="Toggle snapshots"
+            title="Snapshots (autosave + one-click rollback)"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                 stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"
+                 style="width:16px;height:16px;display:block">
+              <path d="M3 12a9 9 0 1 0 9-9"/>
+              <polyline points="3 4 3 10 9 10"/>
+              <polyline points="12 7 12 12 16 14"/>
+            </svg>
+          </button>
+          @if (showSnapshots()) {
+            <div class="header-panel">
+              <app-snapshot-panel
+                [workspaceId]="workspaceId()"
+                (closed)="showSnapshots.set(false)"
+                (rolledBack)="onRolledBack($event)"
+              />
+            </div>
+          }
+        </div>
+
         <!-- Activity feed toggle + dropdown -->
         <div class="header-dropdown">
           <button
@@ -171,7 +204,10 @@ function peerInitials(name: string): string {
           </button>
           @if (showActivityFeed()) {
             <div class="header-panel">
-              <app-activity-feed (closed)="showActivityFeed.set(false)" />
+              <app-activity-feed
+                (closed)="showActivityFeed.set(false)"
+                (objectOpened)="onActivityObjectOpened($event)"
+              />
             </div>
           }
         </div>
@@ -288,6 +324,8 @@ export class WorkspaceLayoutComponent implements OnInit, OnDestroy {
   protected showActivityFeed = signal(false);
   protected showNoteImport = signal(false);
   protected exporting = signal(false);
+  /** F-B01: controls the snapshot dropdown visibility. */
+  protected showSnapshots = signal(false);
 
   /** H-03: pending conflict dialog state — resolved when the user picks a choice. */
   protected conflictPrompt = signal<{
@@ -301,6 +339,10 @@ export class WorkspaceLayoutComponent implements OnInit, OnDestroy {
   private readonly persona        = inject(PersonaService);
   private readonly packageService = inject(PackageService);
   private readonly toast          = inject(ToastService);
+  // F-B01: snapshot autosave + rollback lifecycle plumbing
+  private readonly snapshotService = inject(SnapshotService);
+  private readonly canvasService   = inject(CanvasService);
+  private readonly mutualHelp      = inject(MutualHelpService);
 
   protected peers       = toSignal(this.presence.peers$, { initialValue: [] });
   protected unreadCount = toSignal(this.commentService.unreadCount$, { initialValue: 0 });
@@ -356,18 +398,70 @@ export class WorkspaceLayoutComponent implements OnInit, OnDestroy {
 
     // H-05: boot the telemetry aggregator worker for this workspace
     this.telemetry.boot(id);
+
+    // F-B01: start snapshot autosave for this workspace. `getState()` is
+    // called every tick when the workspace has been marked dirty; it
+    // returns the full state payload that gets captured and (on rollback)
+    // restored back to the live stores.
+    this.snapshotService.startAutoSave(id, () => this._collectState());
+
+    // Mark dirty on canvas / mutual-help mutations so autosave captures
+    // them on the next tick. Chat and comments are intentionally excluded
+    // from the snapshot payload (they have their own rolling history) but
+    // still drive the dirty flag so snapshot cadence reflects real work.
+    this._subs.add(
+      this.canvasService.objects$.subscribe(() => this.snapshotService.markDirty()),
+    );
+    this._subs.add(
+      this.mutualHelp.posts$.subscribe(() => this.snapshotService.markDirty()),
+    );
   }
 
   ngOnDestroy(): void {
     this.presence.stopHeartbeat();
     this.telemetry.terminate();
+    // F-B01: stop autosave on workspace close
+    this.snapshotService.stopAutoSave();
     this._subs.unsubscribe();
+  }
+
+  /** F-B01: compose the state payload captured by SnapshotService. */
+  private _collectState(): Record<string, unknown> {
+    return {
+      canvas: this.canvasService.objectsValue,
+      mutualHelp: this.mutualHelp.postsValue,
+    };
   }
 
   protected onOpenComments(targetId: string): void {
     this.commentTargetId.set(
       this.commentTargetId() === targetId ? null : targetId,
     );
+  }
+
+  /**
+   * F-H04: when a user clicks an object link in the activity feed, open the
+   * comment drawer for that object (works for any canvas object and for
+   * mutual-help posts / chat targets since the drawer keys on an id).
+   */
+  protected onActivityObjectOpened(e: { objectId: string; objectType?: string }): void {
+    this.showActivityFeed.set(false);
+    this.commentTargetId.set(e.objectId);
+  }
+
+  /**
+   * F-B01: after a rollback, reload the services that back the visible UI
+   * so the canvas / mutual-help board reflect the restored state.
+   */
+  protected async onRolledBack(_seq: number): Promise<void> {
+    const id = this.workspaceId();
+    if (!id) return;
+    try {
+      await this.canvasService.loadForWorkspace(id);
+      await this.mutualHelp.loadForWorkspace(id);
+    } catch {
+      // Services surface their own errors via toasts where appropriate.
+    }
   }
 
   // ── H-02: bulk note import wizard entry ────────────────────────────────
