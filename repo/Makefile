@@ -8,9 +8,10 @@ dev:
 test:
 	docker compose run --rm test
 
-## Run Playwright multi-tab e2e tests (headless Chromium)
+## Run Playwright e2e tests — delegates to the primary repo/e2e_tests/ suite.
+## The legacy repo/e2e/ harness is deprecated; use `npm run test:e2e` directly.
 e2e:
-	docker compose run --rm e2e
+	docker compose run --rm e2e npm run test:e2e
 
 ## Build the production bundle into ./dist
 build:

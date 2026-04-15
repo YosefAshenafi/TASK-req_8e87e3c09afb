@@ -133,7 +133,7 @@ export interface ActivityEntry {
 export interface MutualHelpPost {
   id: string;
   workspaceId: string;
-  status: 'draft' | 'active' | 'expired' | 'withdrawn';
+  status: 'draft' | 'active' | 'expired' | 'withdrawn' | 'resolved';
   type: 'request' | 'offer';
   category: string;
   title: string;

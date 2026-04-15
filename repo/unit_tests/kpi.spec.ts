@@ -4,6 +4,8 @@ import { makeContext } from './helpers';
 import { TelemetryService } from '../src/app/telemetry/telemetry.service';
 import { KpiService } from '../src/app/kpi/kpi.service';
 import { ToastService } from '../src/app/core/toast.service';
+import { computeAvgCommentResponseMs, computeUnresolvedFromEvents } from '../src/workers/kpi-compute';
+import type { KpiBufferEntry } from '../src/workers/kpi-compute';
 
 describe('KpiService', () => {
   let ctx: ReturnType<typeof makeContext>;
@@ -117,6 +119,60 @@ describe('KpiService', () => {
 
       const report = await kpi.dailyReport({ from: '2026-04-01', to: '2026-04-01' });
       expect(report).toHaveLength(1);
+    });
+  });
+
+  // ── KPI metric semantics (H-01) ───────────────────────────────────────────
+
+  describe('KPI metric semantics', () => {
+    it('avgCommentResponseMs: returns mean delta for comment-created → comment-reply pairs', () => {
+      const now = Date.now();
+      const buffer: KpiBufferEntry[] = [
+        { type: 'comment-created', at: now - 5000, threadId: 't1' },
+        { type: 'comment-reply',   at: now,         threadId: 't1' },
+      ];
+      expect(computeAvgCommentResponseMs(buffer)).toBeCloseTo(5000, 0);
+      // No pairs → 0
+      expect(computeAvgCommentResponseMs([])).toBe(0);
+    });
+
+    it('unresolvedRequests: counts mutual-help-published minus mutual-help-resolved', () => {
+      const events = [
+        { type: 'mutual-help-published' },
+        { type: 'mutual-help-published' },
+        { type: 'mutual-help-published' },
+        { type: 'mutual-help-resolved' },
+      ];
+      expect(computeUnresolvedFromEvents(events)).toBe(2);
+    });
+
+    it('avgCommentResponseMs: 10-minute window filter excludes stale pairs', () => {
+      const now = Date.now();
+      const WINDOW_10_MIN = 10 * 60_000;
+
+      const allEntries: KpiBufferEntry[] = [
+        // Outside window — should be excluded after worker eviction
+        { type: 'comment-created', at: now - WINDOW_10_MIN - 5000, threadId: 'old-t' },
+        { type: 'comment-reply',   at: now - WINDOW_10_MIN - 1000, threadId: 'old-t' },
+        // Inside window
+        { type: 'comment-created', at: now - 3000, threadId: 'new-t' },
+        { type: 'comment-reply',   at: now,        threadId: 'new-t' },
+      ];
+
+      // Without filter: both pairs contribute — avg = (4000 + 3000) / 2 = 3500
+      expect(computeAvgCommentResponseMs(allEntries)).toBeCloseTo(3500, 0);
+
+      // Apply the same filter the worker applies before calling the function
+      const windowed = allEntries.filter(e => e.at >= now - WINDOW_10_MIN);
+      // Only the recent pair remains — avg = 3000
+      expect(computeAvgCommentResponseMs(windowed)).toBeCloseTo(3000, 0);
+    });
+
+    it('unresolvedRequests: floors at 0 — never goes negative', () => {
+      const events = [
+        { type: 'mutual-help-resolved' }, // resolved with no prior publish
+      ];
+      expect(computeUnresolvedFromEvents(events)).toBe(0);
     });
   });
 

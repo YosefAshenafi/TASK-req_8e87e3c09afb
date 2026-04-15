@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { filter, firstValueFrom, take } from 'rxjs';
 import { DbService } from '../src/app/core/db.service';
 import { PrefsService } from '../src/app/core/prefs.service';
@@ -8,6 +8,7 @@ import {
   MAX_FAILED_ATTEMPTS,
   SEVEN_DAYS_MS,
 } from '../src/app/auth/profile.model';
+import { makeContext } from './helpers';
 
 describe('AuthService', () => {
   let db: DbService;
@@ -281,6 +282,29 @@ describe('AuthService', () => {
         auth.currentProfile$.pipe(filter((x): x is NonNullable<typeof x> => x !== null), take(1)),
       );
       expect(p.username).toBe('alice');
+    });
+  });
+
+  // ── system messages ────────────────────────────────────────────────────────
+
+  describe('system messages', () => {
+    it('posts "{username} signed in." to chat on successful sign-in', async () => {
+      const ctx = makeContext();
+      const authWithChat = new AuthService(ctx.db, ctx.prefs, ctx.chat);
+      await authWithChat.createProfile({ username: 'alice', password: 'password123', role: 'Admin' });
+      const spy = vi.spyOn(ctx.chat, 'postSystem');
+      await authWithChat.signIn('alice', 'password123');
+      expect(spy).toHaveBeenCalledWith('alice signed in.');
+    });
+
+    it('posts "{username} signed out." to chat on sign-out', async () => {
+      const ctx = makeContext();
+      const authWithChat = new AuthService(ctx.db, ctx.prefs, ctx.chat);
+      await authWithChat.createProfile({ username: 'alice', password: 'password123', role: 'Admin' });
+      await authWithChat.signIn('alice', 'password123');
+      const spy = vi.spyOn(ctx.chat, 'postSystem');
+      await authWithChat.signOut();
+      expect(spy).toHaveBeenCalledWith('alice signed out.');
     });
   });
 });

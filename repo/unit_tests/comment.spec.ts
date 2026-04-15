@@ -4,6 +4,7 @@ import { makeContext, createAndSignIn } from './helpers';
 import { CommentService } from '../src/app/comments/comment.service';
 import { ToastService } from '../src/app/core/toast.service';
 import { AppException } from '../src/app/core/error';
+import { filterMentionSuggestions, stripUnknownMentions } from '../src/app/comments/mention-utils';
 
 const WS = 'workspace-comments';
 const TARGET = 'canvas-object-1';
@@ -194,5 +195,44 @@ describe('CommentService', () => {
       const count = await firstValueFrom(comments.unreadCount$);
       expect(count).toBe(1);
     });
+  });
+});
+
+// ── Mention suggestion/validation utilities ───────────────────────────────────
+
+describe('filterMentionSuggestions()', () => {
+  it('returns usernames matching the prefix', () => {
+    const result = filterMentionSuggestions(['alice', 'bob', 'alex'], 'ali');
+    expect(result).toEqual(['alice']);
+  });
+
+  it('is case-insensitive', () => {
+    const result = filterMentionSuggestions(['Alice', 'Bob'], 'ali');
+    expect(result).toEqual(['Alice']);
+  });
+
+  it('returns empty for unknown prefix', () => {
+    const result = filterMentionSuggestions(['alice', 'bob'], 'unknown');
+    expect(result).toEqual([]);
+  });
+
+  it('caps results at 8', () => {
+    const roster = Array.from({ length: 12 }, (_, i) => `user${i}`);
+    const result = filterMentionSuggestions(roster, 'user');
+    expect(result).toHaveLength(8);
+  });
+});
+
+describe('stripUnknownMentions()', () => {
+  it('keeps valid @mentions intact', () => {
+    const { body, unknownMentions } = stripUnknownMentions('@alice hello', ['alice', 'bob']);
+    expect(body).toBe('@alice hello');
+    expect(unknownMentions).toEqual([]);
+  });
+
+  it('strips @handles not in roster and reports them', () => {
+    const { body, unknownMentions } = stripUnknownMentions('@unknown hello', ['alice', 'bob']);
+    expect(body).toBe('unknown hello');
+    expect(unknownMentions).toContain('@unknown');
   });
 });

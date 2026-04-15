@@ -12,6 +12,7 @@ export type WorkerMessage =
       type: string;
       workspaceId: string;
       profileId?: string;
+      threadId?: string;
     }
   | { kind: 'kpi-update'; metrics: unknown }
   | { kind: 'kpi-alert'; metric: string; value: number; threshold: number }
@@ -72,16 +73,19 @@ export class TelemetryService {
   private async _persist(event: TelemetryEvent): Promise<void> {
     const idb = await this.db.open();
     await idb.put('events', event);
-    // H-05: send the full event shape the aggregator worker expects (type, workspaceId, profileId).
+    // H-05: send the full event shape the aggregator worker expects (type, workspaceId, profileId, threadId).
     const payload = event.payload as Record<string, unknown> | undefined;
     const profileId =
       typeof payload?.['profileId'] === 'string' ? (payload['profileId'] as string) : undefined;
+    const threadId =
+      typeof payload?.['threadId'] === 'string' ? (payload['threadId'] as string) : undefined;
     this._worker?.postMessage({
       kind: 'event-appended',
       id: event.id,
       type: event.type,
       workspaceId: event.workspaceId,
       profileId,
+      threadId,
     } satisfies WorkerMessage);
   }
 }

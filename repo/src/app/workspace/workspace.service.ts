@@ -1,10 +1,11 @@
-import { Injectable, OnDestroy } from '@angular/core';
+import { Injectable, OnDestroy, Optional } from '@angular/core';
 import { BehaviorSubject, Observable, Subscription } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 import { DbService } from '../core/db.service';
 import { PrefsService } from '../core/prefs.service';
 import { BroadcastService } from '../core/broadcast.service';
 import { AuthService } from '../auth/auth.service';
+import { ChatService } from '../chat/chat.service';
 import { AppException } from '../core/error';
 import type { Workspace, WorkspaceSummary } from '../core/types';
 
@@ -18,6 +19,8 @@ export class WorkspaceService implements OnDestroy {
     private readonly prefs: PrefsService,
     private readonly broadcast: BroadcastService,
     private readonly auth: AuthService,
+    // ChatService is optional so unit tests that omit it keep working.
+    @Optional() private readonly chat: ChatService | null = null,
   ) {}
 
   get active$(): Observable<Workspace | null> {
@@ -49,6 +52,7 @@ export class WorkspaceService implements OnDestroy {
       version: 1,
     };
     await idb.put('workspaces', workspace);
+    await this.chat?.postSystem(`Workspace "${workspace.name}" was created.`);
     return workspace;
   }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { firstValueFrom } from 'rxjs';
 import { DbService } from '../src/app/core/db.service';
 import { PrefsService } from '../src/app/core/prefs.service';
@@ -9,6 +9,7 @@ import { AuthService } from '../src/app/auth/auth.service';
 import { TelemetryService } from '../src/app/telemetry/telemetry.service';
 import { AppException } from '../src/app/core/error';
 import type { CanvasObject } from '../src/app/core/types';
+import { makeContext } from './helpers';
 
 const WS = 'workspace-1';
 
@@ -214,6 +215,83 @@ describe('CanvasService', () => {
       const objects = await firstValueFrom(canvas.objects$);
       expect(objects.find(o => o.id === obj1.id)).toBeDefined();
       expect(objects.find(o => o.id === obj2.id)).toBeUndefined();
+    });
+  });
+
+  // ── conflict$ observable (H-02) ───────────────────────────────────────────
+
+  describe('conflict$ observable (H-02)', () => {
+    it('Test A — emits when patchObject has a version conflict (drag-move path)', async () => {
+      const emitted: { objectId: string; local: number; incoming: number }[] = [];
+      canvas.conflict$.subscribe(c => emitted.push(c));
+
+      const obj = await canvas.addObject(makeStickyInput());
+      try {
+        await canvas.patchObject(obj.id, { x: 999 }, 99); // wrong baseVersion
+      } catch { /* expected VersionConflict */ }
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].objectId).toBe(obj.id);
+      expect(emitted[0].local).toBe(1);       // obj.version stored in IDB
+      expect(emitted[0].incoming).toBe(99);   // baseVersion passed in
+    });
+
+    it('Test C — deleteObject() with stale baseVersion emits on conflict$ before throwing', async () => {
+      const emitted: { objectId: string; local: number; incoming: number }[] = [];
+      canvas.conflict$.subscribe(c => emitted.push(c));
+
+      const obj = await canvas.addObject(makeStickyInput());
+      try {
+        await canvas.deleteObject(obj.id, 99); // wrong baseVersion
+      } catch { /* expected VersionConflict */ }
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].objectId).toBe(obj.id);
+      expect(emitted[0].local).toBe(1);
+      expect(emitted[0].incoming).toBe(99);
+    });
+
+    it('Test B — incoming broadcast edit with baseVersion mismatch emits on conflict$', async () => {
+      // Two broadcast instances on the same workspace channel simulate two tabs.
+      const tab2 = new TabIdentityService();
+      const broadcast2 = new BroadcastService(tab2);
+      broadcast.openForWorkspace(WS);
+      broadcast2.openForWorkspace(WS);
+
+      await canvas.loadForWorkspace(WS);
+      const obj = await canvas.addObject(makeStickyInput());
+
+      const emitted: { objectId: string }[] = [];
+      canvas.conflict$.subscribe(c => emitted.push(c));
+
+      // Simulate a remote tab broadcasting an edit with the wrong baseVersion.
+      broadcast2.publish({
+        kind: 'edit',
+        objectId: obj.id,
+        baseVersion: 99, // mismatches obj.version (1)
+        patch: [{ op: 'replace', path: '/x', value: 100 }],
+      });
+
+      // Allow async IDB lookup and listener to run.
+      await new Promise(r => setTimeout(r, 30));
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].objectId).toBe(obj.id);
+    });
+  });
+
+  // ── system messages ────────────────────────────────────────────────────────
+
+  describe('system messages', () => {
+    it('deleteObject() posts a system message containing the object type', async () => {
+      const ctx = makeContext();
+      const canvasWithChat = new CanvasService(
+        ctx.db, ctx.broadcast, ctx.tab, ctx.auth, ctx.telemetry, null, ctx.chat,
+      );
+      const obj = await canvasWithChat.addObject(makeStickyInput());
+      const spy = vi.spyOn(ctx.chat, 'postSystem');
+      await canvasWithChat.deleteObject(obj.id, obj.version);
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining('sticky-note'));
     });
   });
 });

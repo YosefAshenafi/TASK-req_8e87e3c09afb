@@ -379,6 +379,16 @@ export class CanvasComponent implements OnInit, AfterViewInit, OnDestroy {
       }),
     );
 
+    // H-02: subscribe to all conflict signals so every edit path surfaces the drawer.
+    this._subs.add(
+      this.canvasService.conflict$.subscribe(conflict => {
+        const localObj = this._allObjects().find(o => o.id === conflict.objectId);
+        if (localObj) {
+          this.conflict.set({ ...conflict, localObj });
+        }
+      }),
+    );
+
     // H-06: mirror remote cursors into a signal for template rendering
     this._subs.add(
       this.presence.cursors$.subscribe(cs => this.remoteCursors.set(cs)),
@@ -601,7 +611,15 @@ export class CanvasComponent implements OnInit, AfterViewInit, OnDestroy {
     // ── Erase ──
     if (tool === 'erase') {
       const hit = this._hitTest(x, y);
-      if (hit) await this.canvasService.deleteObject(hit.id, hit.version);
+      if (hit) {
+        try {
+          await this.canvasService.deleteObject(hit.id, hit.version);
+        } catch (err) {
+          if (err instanceof AppException && err.error.code === 'VersionConflict') {
+            this.conflict.set({ objectId: hit.id, local: err.error.local, incoming: err.error.incoming, localObj: hit });
+          }
+        }
+      }
       return;
     }
 
@@ -686,7 +704,15 @@ export class CanvasComponent implements OnInit, AfterViewInit, OnDestroy {
       const pos = this._notePosOverride.get(this._noteDrag.id);
       if (pos) {
         const obj = this._allObjects().find(o => o.id === this._noteDrag!.id);
-        if (obj) await this.canvasService.patchObject(obj.id, { x: pos.x, y: pos.y }, obj.version);
+        if (obj) {
+          try {
+            await this.canvasService.patchObject(obj.id, { x: pos.x, y: pos.y }, obj.version);
+          } catch (err) {
+            if (err instanceof AppException && err.error.code === 'VersionConflict') {
+              this.conflict.set({ objectId: obj.id, local: err.error.local, incoming: err.error.incoming, localObj: obj });
+            }
+          }
+        }
       }
       this._notePosOverride.delete(this._noteDrag.id);
       this._noteDrag = null;
@@ -762,7 +788,11 @@ export class CanvasComponent implements OnInit, AfterViewInit, OnDestroy {
     e.stopPropagation();
     if (this.editingId() === obj.id) return;
     if (this.activeTool() === 'erase') {
-      this.canvasService.deleteObject(obj.id, obj.version);
+      this.canvasService.deleteObject(obj.id, obj.version).catch(err => {
+        if (err instanceof AppException && err.error.code === 'VersionConflict') {
+          this.conflict.set({ objectId: obj.id, local: err.error.local, incoming: err.error.incoming, localObj: obj });
+        }
+      });
       return;
     }
     this.selectedId.set(obj.id);

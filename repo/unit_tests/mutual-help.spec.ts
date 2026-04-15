@@ -231,6 +231,54 @@ describe('MutualHelpService', () => {
     });
   });
 
+  // ── resolve ───────────────────────────────────────────────────────────────
+
+  describe('resolve()', () => {
+    beforeEach(() => mh.loadForWorkspace(WS));
+
+    it('changes status to resolved', async () => {
+      const post = await mh.createDraft(makeInput());
+      await mh.resolve(post.id);
+      const posts = await firstValueFrom(mh.posts$);
+      const updated = posts.find(p => p.id === post.id);
+      expect(updated?.status).toBe('resolved');
+    });
+
+    it('increments version', async () => {
+      const post = await mh.createDraft(makeInput()); // version=1
+      await mh.resolve(post.id);                      // version=2
+      const posts = await firstValueFrom(mh.posts$);
+      const updated = posts.find(p => p.id === post.id);
+      expect(updated?.version).toBe(2);
+    });
+
+    it('throws NotFound for unknown post id', async () => {
+      await expect(mh.resolve('ghost-id')).rejects.toSatisfy(
+        (e: AppException) => e.error.code === 'NotFound',
+      );
+    });
+
+    it('emits mutual-help-resolved telemetry event', async () => {
+      const logSpy = vi.spyOn(ctx.telemetry, 'log');
+      const post = await mh.createDraft(makeInput());
+      await mh.resolve(post.id);
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'mutual-help-resolved' }),
+      );
+    });
+
+    it('posts system message when ChatService is provided', async () => {
+      const mhWithChat = new MutualHelpService(
+        ctx.db, ctx.broadcast, ctx.telemetry, ctx.auth, null, ctx.chat,
+      );
+      await mhWithChat.loadForWorkspace(WS);
+      const spy = vi.spyOn(ctx.chat, 'postSystem');
+      const post = await mhWithChat.createDraft(makeInput());
+      await mhWithChat.resolve(post.id);
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining('resolved'));
+    });
+  });
+
   // ── unload ────────────────────────────────────────────────────────────────
 
   describe('unload()', () => {

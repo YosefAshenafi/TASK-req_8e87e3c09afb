@@ -1,3 +1,5 @@
+// DEPRECATED: This legacy harness is superseded by repo/e2e_tests/. Do not add new tests here.
+
 import { test, expect } from '@playwright/test';
 
 /**

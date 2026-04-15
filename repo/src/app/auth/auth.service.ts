@@ -1,8 +1,9 @@
-import { Injectable } from '@angular/core';
+import { Injectable, Optional } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 import { DbService } from '../core/db.service';
 import { PrefsService } from '../core/prefs.service';
+import { ChatService } from '../chat/chat.service';
 import { AppException } from '../core/error';
 import type { PersonaRole, Profile, ProfileSummary } from '../core/types';
 import { generateSalt, hashPassword, verifyPassword } from './crypto';
@@ -24,6 +25,9 @@ export class AuthService {
   constructor(
     private readonly db: DbService,
     private readonly prefs: PrefsService,
+    // ChatService is @Optional to avoid a circular DI cycle (ChatService → AuthService).
+    // Angular injects null when the cycle is detected; signIn/signOut guard with ?.
+    @Optional() private readonly chat: ChatService | null = null,
   ) {}
 
   get currentProfile$(): Observable<Profile | null> {
@@ -128,12 +132,15 @@ export class AuthService {
     this._current$.next(updated);
     this.prefs.set('activeProfileId', updated.id);
     this.prefs.set('personaRole', updated.role as PersonaRole);
+    await this.chat?.postSystem(`${updated.username} signed in.`);
     return { ok: true, profile: updated };
   }
 
   async signOut(): Promise<void> {
+    const username = this._current$.value?.username;
     this._current$.next(null);
     this.prefs.set('activeProfileId', undefined);
+    if (username) await this.chat?.postSystem(`${username} signed out.`);
   }
 
   /** Call on app boot. Signs out any profile whose lastSignInAt is older than 7 days. */

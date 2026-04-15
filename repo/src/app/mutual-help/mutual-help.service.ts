@@ -5,6 +5,7 @@ import { DbService } from '../core/db.service';
 import { BroadcastService } from '../core/broadcast.service';
 import { TelemetryService } from '../telemetry/telemetry.service';
 import { AuthService } from '../auth/auth.service';
+import { ChatService } from '../chat/chat.service';
 import { PresenceService } from '../presence/presence.service';
 import { AppException } from '../core/error';
 import type { MutualHelpPost, NewPostInput } from '../core/types';
@@ -35,6 +36,8 @@ export class MutualHelpService {
     // F-H04: presence is optional so existing unit tests that construct the
     // service without it still work. Production DI always supplies it.
     @Optional() @Inject(PresenceService) private readonly presence: PresenceService | null = null,
+    // ChatService is optional so unit tests that omit it keep working.
+    @Optional() private readonly chat: ChatService | null = null,
   ) {}
 
   async loadForWorkspace(workspaceId: string): Promise<void> {
@@ -115,6 +118,20 @@ export class MutualHelpService {
     const updated = await this._transition(postId, { status: 'withdrawn' });
     // F-H04: record withdraw in the activity feed
     this.presence?.logActivity(`withdrew "${updated.title}"`, postId, 'mutual-help-post');
+  }
+
+  async resolve(postId: string): Promise<void> {
+    const updated = await this._transition(postId, { status: 'resolved' });
+    // H-05: emit telemetry so the worker decrements unresolvedCount
+    this.telemetry.log({
+      workspaceId: updated.workspaceId,
+      type: 'mutual-help-resolved',
+      payload: { profileId: this.auth.currentProfile?.id, postId },
+    });
+    // System message
+    await this.chat?.postSystem(`Mutual-help request "${updated.title}" was resolved.`);
+    // F-H04: record resolve in the activity feed
+    this.presence?.logActivity(`resolved "${updated.title}"`, postId, 'mutual-help-post');
   }
 
   async pin(postId: string, pinned: boolean): Promise<void> {

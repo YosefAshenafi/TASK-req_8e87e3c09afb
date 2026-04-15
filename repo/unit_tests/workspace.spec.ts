@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { filter, firstValueFrom, take } from 'rxjs';
 import { DbService } from '../src/app/core/db.service';
 import { PrefsService } from '../src/app/core/prefs.service';
@@ -181,6 +181,19 @@ describe('WorkspaceService', () => {
         workspace.active$.pipe(filter((a): a is NonNullable<typeof a> => a !== null), take(1)),
       );
       expect(active.id).toBe(ws.id);
+    });
+  });
+
+  // ── system messages ────────────────────────────────────────────────────────
+
+  describe('system messages', () => {
+    it('posts a system message containing the workspace name on create()', async () => {
+      // Use the already-signed-in auth from the outer beforeEach; inject a fresh ChatService.
+      const chatService = makeContext().chat;
+      const wsWithChat = new WorkspaceService(db, prefs, broadcast, auth, chatService);
+      const spy = vi.spyOn(chatService, 'postSystem');
+      await wsWithChat.create('My Chat Workspace');
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining('My Chat Workspace'));
     });
   });
 });

@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { firstValueFrom } from 'rxjs';
 import { makeContext, createAndSignIn } from './helpers';
 import { PresenceService } from '../src/app/presence/presence.service';
+import { TabIdentityService } from '../src/app/core/tab-identity.service';
+import { BroadcastService } from '../src/app/core/broadcast.service';
 
 describe('PresenceService', () => {
   let ctx: ReturnType<typeof makeContext>;
@@ -20,6 +22,59 @@ describe('PresenceService', () => {
       const peers = await firstValueFrom(presence.peers$);
       expect(peers).toEqual([]);
     });
+
+    it('adds a peer when an online presence message arrives from another tab', async () => {
+      const tab2 = new TabIdentityService();
+      const broadcast2 = new BroadcastService(tab2);
+      ctx.broadcast.openForWorkspace('ws-presence');
+      broadcast2.openForWorkspace('ws-presence');
+
+      broadcast2.publish({
+        kind: 'presence',
+        profileId: 'peer-alice',
+        role: 'Teacher',
+        color: '#ff0000',
+        status: 'online',
+      });
+
+      const peers = await firstValueFrom(presence.peers$);
+      expect(peers.some(p => p.profileId === 'peer-alice')).toBe(true);
+
+      ctx.broadcast.close();
+      broadcast2.close();
+    });
+
+    it('removes a peer when a leaving presence message arrives', async () => {
+      const tab2 = new TabIdentityService();
+      const broadcast2 = new BroadcastService(tab2);
+      ctx.broadcast.openForWorkspace('ws-presence');
+      broadcast2.openForWorkspace('ws-presence');
+
+      // Add peer
+      broadcast2.publish({
+        kind: 'presence',
+        profileId: 'peer-bob',
+        role: 'Teacher',
+        color: '#0000ff',
+        status: 'online',
+      });
+      let peers = await firstValueFrom(presence.peers$);
+      expect(peers.some(p => p.profileId === 'peer-bob')).toBe(true);
+
+      // Remove peer via 'leaving'
+      broadcast2.publish({
+        kind: 'presence',
+        profileId: 'peer-bob',
+        role: 'Teacher',
+        color: '#0000ff',
+        status: 'leaving',
+      });
+      peers = await firstValueFrom(presence.peers$);
+      expect(peers.some(p => p.profileId === 'peer-bob')).toBe(false);
+
+      ctx.broadcast.close();
+      broadcast2.close();
+    });
   });
 
   // ── cursors$ ─────────────────────────────────────────────────────────────
@@ -28,6 +83,24 @@ describe('PresenceService', () => {
     it('starts empty', async () => {
       const cursors = await firstValueFrom(presence.cursors$);
       expect(cursors).toEqual([]);
+    });
+
+    it('updates cursors$ when a cursor message arrives from another tab', async () => {
+      const tab2 = new TabIdentityService();
+      const broadcast2 = new BroadcastService(tab2);
+      ctx.broadcast.openForWorkspace('ws-cursors');
+      broadcast2.openForWorkspace('ws-cursors');
+
+      broadcast2.publish({ kind: 'cursor', x: 150, y: 250 });
+
+      const cursors = await firstValueFrom(presence.cursors$);
+      expect(cursors).toHaveLength(1);
+      expect(cursors[0].x).toBe(150);
+      expect(cursors[0].y).toBe(250);
+      expect(cursors[0].tabId).toBe(tab2.tabId);
+
+      ctx.broadcast.close();
+      broadcast2.close();
     });
   });
 

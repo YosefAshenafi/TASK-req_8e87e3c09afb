@@ -8,12 +8,16 @@ import {
   AfterViewChecked,
   ViewChild,
   ElementRef,
+  signal,
+  computed,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { CommentService } from './comment.service';
 import { ToastService } from '../core/toast.service';
+import { AuthService } from '../auth/auth.service';
+import { filterMentionSuggestions, stripUnknownMentions } from './mention-utils';
 import type { CommentThread, Reply } from '../core/types';
 
 const AVATAR_COLORS = [
@@ -55,10 +59,18 @@ const AVATAR_COLORS = [
       <div class="reply-input-area">
         <textarea
           [(ngModel)]="draft"
+          (ngModelChange)="onDraftChange($event)"
           placeholder="Write a comment... (@mention users)"
           maxlength="500"
           (keydown.enter)="onEnter($event)">
         </textarea>
+        @if (mentionSuggestions().length > 0) {
+          <div class="mention-dropdown">
+            @for (s of mentionSuggestions(); track s) {
+              <div class="mention-item" (click)="insertSuggestion(s)">@{{ s }}</div>
+            }
+          </div>
+        }
         <div class="reply-actions">
           <span class="char-count">{{ draft.length }}/500</span>
           <button
@@ -92,6 +104,9 @@ const AVATAR_COLORS = [
     .char-count { font-size:0.68rem; color:#bbb; }
     .reply-btn { padding:6px 16px; background:#1e88e5; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:0.84rem; font-weight:600; }
     .reply-btn:disabled { opacity:0.4; cursor:not-allowed; }
+    .mention-dropdown { background:#fff; border:1px solid #e0e0e0; border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,0.10); margin-bottom:4px; max-height:160px; overflow-y:auto; }
+    .mention-item { padding:6px 10px; font-size:0.83rem; cursor:pointer; color:#333; }
+    .mention-item:hover { background:#f0f7ff; color:#1e88e5; }
   `],
 })
 export class CommentDrawerComponent implements OnInit, OnDestroy, AfterViewChecked {
@@ -107,6 +122,18 @@ export class CommentDrawerComponent implements OnInit, OnDestroy, AfterViewCheck
   protected draft = '';
   protected submitting = false;
 
+  /** Roster of all known profile usernames for @mention suggestions. */
+  private readonly _roster = signal<string[]>([]);
+  /** Text typed after the last '@' in the draft (null = no active mention). */
+  private readonly _mentionQuery = signal<string | null>(null);
+
+  /** Up to 8 roster entries matching the current @mention prefix. */
+  protected readonly mentionSuggestions = computed(() => {
+    const query = this._mentionQuery();
+    if (query === null) return [];
+    return filterMentionSuggestions(this._roster(), query);
+  });
+
   private thread: CommentThread | null = null;
   private subscription: Subscription | null = null;
   private shouldScrollToBottom = false;
@@ -114,6 +141,7 @@ export class CommentDrawerComponent implements OnInit, OnDestroy, AfterViewCheck
   constructor(
     private readonly commentService: CommentService,
     private readonly toastService: ToastService,
+    private readonly authService: AuthService,
   ) {}
 
   ngOnInit(): void {
@@ -125,6 +153,11 @@ export class CommentDrawerComponent implements OnInit, OnDestroy, AfterViewCheck
         this.shouldScrollToBottom = true;
       }
     });
+
+    // Load roster for @mention suggestions.
+    this.authService.listProfiles().then(profiles => {
+      this._roster.set(profiles.map(p => p.username));
+    }).catch(() => { /* non-critical */ });
   }
 
   ngAfterViewChecked(): void {
@@ -145,11 +178,33 @@ export class CommentDrawerComponent implements OnInit, OnDestroy, AfterViewCheck
     this.submit();
   }
 
+  /** Tracks the active @mention query as the user types. */
+  protected onDraftChange(value: string): void {
+    const match = value.match(/@(\w*)$/);
+    this._mentionQuery.set(match ? match[1] : null);
+  }
+
+  /** Completes the current @mention with the selected suggestion. */
+  protected insertSuggestion(username: string): void {
+    this.draft = this.draft.replace(/@\w*$/, `@${username} `);
+    this._mentionQuery.set(null);
+  }
+
   protected async submit(): Promise<void> {
-    const body = this.draft.trim();
-    if (!body || this.submitting) return;
+    const rawBody = this.draft.trim();
+    if (!rawBody || this.submitting) return;
+
+    // Validate @mentions against the roster; strip unknown handles.
+    const { body, unknownMentions } = this.validateMentions(rawBody);
+    if (unknownMentions.length > 0) {
+      this.toastService.show(
+        `Unknown @mention${unknownMentions.length > 1 ? 's' : ''}: ${unknownMentions.join(', ')} — removed`,
+        'warning',
+      );
+    }
 
     this.submitting = true;
+    this._mentionQuery.set(null);
     try {
       let thread = this.thread;
       if (!thread) {
@@ -182,6 +237,16 @@ export class CommentDrawerComponent implements OnInit, OnDestroy, AfterViewCheck
     return [...new Set(matches.map(m => m.slice(1)))];
   }
 
+  /**
+   * Strip @handles not found in the roster and return the cleaned body plus
+   * a list of the unknown handles that were removed.
+   */
+  private validateMentions(body: string): { body: string; unknownMentions: string[] } {
+    const roster = this._roster();
+    if (roster.length === 0) return { body, unknownMentions: [] };
+    return stripUnknownMentions(body, roster);
+  }
+
   private scrollToBottom(): void {
     if (this.replyListRef) {
       const el = this.replyListRef.nativeElement;
@@ -189,3 +254,4 @@ export class CommentDrawerComponent implements OnInit, OnDestroy, AfterViewCheck
     }
   }
 }
+

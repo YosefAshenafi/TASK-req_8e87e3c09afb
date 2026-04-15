@@ -33,12 +33,15 @@ Open `http://localhost:4200` in your browser.
 |---|---|
 | Start dev server | `make dev` or `docker compose up` |
 | Run unit tests | `make test` |
-| Run e2e tests | `make e2e` |
+| Run e2e tests | `npm run test:e2e` (Playwright) or `make e2e` |
 | Production build | `make build` |
 | Serve production build | `make prod` |
 | Lint + format check | `make lint` |
 | Open shell in dev container | `make shell` |
 | Destroy volumes (fresh install) | `make clean` |
+
+> **E2E tests:** The primary maintained suite lives in `repo/e2e_tests/` and is run via
+> `npm run test:e2e`. The legacy harness at `repo/e2e/` is deprecated.
 
 All `make` targets map directly to `docker compose run --rm <service> ...`.
 

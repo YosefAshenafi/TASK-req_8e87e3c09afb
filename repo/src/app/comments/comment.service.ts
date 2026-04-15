@@ -127,10 +127,13 @@ export class CommentService {
     // Broadcast so other tabs can check if their user was mentioned
     this.broadcast.publish({ kind: 'comment', threadId, reply, mentions });
 
-    // H-05: emit telemetry for KPI aggregation
+    // H-05: emit telemetry for KPI aggregation.
+    // 'comment-created' marks the first reply (original comment) so the worker
+    // can pair it with a later 'comment-reply' to compute avgCommentResponseMs.
+    const isFirstReply = thread.replies.length === 0;
     this.telemetry.log({
       workspaceId: thread.workspaceId,
-      type: 'comment-added',
+      type: isFirstReply ? 'comment-created' : 'comment-reply',
       payload: { profileId: currentProfileId, threadId, replyId: reply.id },
     });
 

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@angular/core';
-import { BehaviorSubject, Observable } from 'rxjs';
+import { BehaviorSubject, Observable, Subject } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 import * as jsonpatch from 'fast-json-patch';
 import { DbService } from '../core/db.service';
@@ -8,6 +8,7 @@ import { TabIdentityService } from '../core/tab-identity.service';
 import { AuthService } from '../auth/auth.service';
 import { TelemetryService } from '../telemetry/telemetry.service';
 import { PresenceService } from '../presence/presence.service';
+import { ChatService } from '../chat/chat.service';
 import { AppException } from '../core/error';
 import type { CanvasObject, JsonPatch } from '../core/types';
 
@@ -16,6 +17,9 @@ const MAX_NOTE_CHARS = 80;
 @Injectable({ providedIn: 'root' })
 export class CanvasService {
   private readonly _objects$ = new BehaviorSubject<CanvasObject[]>([]);
+
+  /** H-02: emits whenever a version conflict is detected, from any edit path. */
+  readonly conflict$ = new Subject<{ objectId: string; local: number; incoming: number }>();
 
   get objects$(): Observable<CanvasObject[]> {
     return this._objects$.asObservable();
@@ -35,6 +39,8 @@ export class CanvasService {
     // F-H04: presence is optional so existing unit tests that construct
     // CanvasService without it keep working; production DI always supplies it.
     @Optional() @Inject(PresenceService) private readonly presence: PresenceService | null = null,
+    // ChatService is optional so unit tests that omit it keep working.
+    @Optional() private readonly chat: ChatService | null = null,
   ) {
     this._listenForEdits();
   }
@@ -94,6 +100,7 @@ export class CanvasService {
     if (!existing) throw new AppException({ code: 'NotFound', detail: `Object ${id} not found` });
 
     if (existing.version !== baseVersion) {
+      this.conflict$.next({ objectId: id, local: existing.version, incoming: baseVersion });
       throw new AppException({
         code: 'VersionConflict',
         objectId: id,
@@ -142,6 +149,7 @@ export class CanvasService {
     const existing = await idb.get('canvas_objects', id);
     if (!existing) return;
     if (existing.version !== baseVersion) {
+      this.conflict$.next({ objectId: id, local: existing.version, incoming: baseVersion });
       throw new AppException({
         code: 'VersionConflict',
         objectId: id,
@@ -151,6 +159,9 @@ export class CanvasService {
     }
     await idb.delete('canvas_objects', id);
     this._objects$.next(this._objects$.value.filter(o => o.id !== id));
+
+    // System message for canvas deletion
+    await this.chat?.postSystem(`A ${existing.type} was deleted from the canvas.`);
 
     // F-H04: record deletion in the activity log
     this.presence?.logActivity(`deleted a ${existing.type}`, id, existing.type);
@@ -165,8 +176,8 @@ export class CanvasService {
       if (!existing) return;
 
       if (existing.version !== msg.baseVersion) {
-        // Conflict — let CanvasComponent handle via conflict$ stream
-        // (Phase 4 conflict drawer)
+        // H-02: surface the conflict so CanvasComponent and other subscribers can react.
+        this.conflict$.next({ objectId: msg.objectId, local: existing.version, incoming: msg.baseVersion });
         return;
       }
 

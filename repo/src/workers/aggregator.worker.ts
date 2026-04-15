@@ -11,6 +11,8 @@
  *  5. Emit `kpi-alert` when configurable thresholds are crossed.
  */
 
+import { computeAvgCommentResponseMs, type KpiBufferEntry } from './kpi-compute';
+
 interface KpiSnapshot {
   notesPerMinute: number;
   avgCommentResponseMs: number;
@@ -20,15 +22,11 @@ interface KpiSnapshot {
 }
 
 /** Lightweight in-memory tuple stored in the ring buffer */
-interface BufferEntry {
-  type: string;
-  at: number;
-  profileId?: string;
-}
+type BufferEntry = KpiBufferEntry;
 
 type MainToWorker =
   | { kind: 'boot'; workspaceId: string; now: number }
-  | { kind: 'event-appended'; id: string; type: string; workspaceId: string; profileId?: string };
+  | { kind: 'event-appended'; id: string; type: string; workspaceId: string; profileId?: string; threadId?: string };
 
 const RING_MAX = 5000;
 const COALESCE_MS = 250;
@@ -42,6 +40,8 @@ let currentWorkspaceId = '';
 let ringBuffer: BufferEntry[] = [];
 let pendingUpdate = false;
 let lastMetrics: Partial<KpiSnapshot> = {};
+/** Running tally for Option-B unresolved-request tracking (not evicted with ring buffer). */
+let unresolvedCount = 0;
 
 // ─── IDB helper ─────────────────────────────────────────────────────────────
 
@@ -66,11 +66,16 @@ addEventListener('message', (ev: MessageEvent<MainToWorker>) => {
   }
 
   if (data.kind === 'event-appended') {
+    // Update running unresolved counter before pushing to ring buffer
+    if (data.type === 'mutual-help-published') unresolvedCount++;
+    else if (data.type === 'mutual-help-resolved') unresolvedCount = Math.max(0, unresolvedCount - 1);
+
     // Push to ring buffer, evict oldest if over capacity
     const entry: BufferEntry = {
       type: data.type,
       at: Date.now(),
       profileId: data.profileId,
+      threadId: data.threadId,
     };
     ringBuffer.push(entry);
     if (ringBuffer.length > RING_MAX) {
@@ -137,13 +142,11 @@ function computeKpi(): void {
     e => e.type === 'note-created' && e.at >= now - WINDOW_1_MIN,
   ).length;
 
-  // avgCommentResponseMs: stub — complex to compute accurately
-  const avgCommentResponseMs = 0;
+  // avgCommentResponseMs: mean delta between comment-created and comment-reply pairs
+  const avgCommentResponseMs = computeAvgCommentResponseMs(ringBuffer);
 
-  // unresolvedRequests: mutual-help-published events in last 10 min
-  const unresolvedRequests = ringBuffer.filter(
-    e => e.type === 'mutual-help-published' && e.at >= now - WINDOW_10_MIN,
-  ).length;
+  // unresolvedRequests: running total of published minus resolved (not window-limited)
+  const unresolvedRequests = unresolvedCount;
 
   // activePeers: distinct profileIds in last 5 min
   const recentProfiles = new Set<string>();
