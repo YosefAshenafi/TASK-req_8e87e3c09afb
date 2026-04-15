@@ -96,7 +96,8 @@ export interface ChatMessage {
   id: string;
   workspaceId: string;
   type: 'user' | 'system';
-  authorId?: string;
+  authorId?: string;   // profile ID of the sender
+  authorName?: string; // denormalised display name for the bubble header
   body: string;
   createdAt: number;
 }

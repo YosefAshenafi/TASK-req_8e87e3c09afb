@@ -14,12 +14,13 @@ import { BroadcastService } from '../core/broadcast.service';
 import { TabIdentityService } from '../core/tab-identity.service';
 import { PrefsService } from '../core/prefs.service';
 import { CanvasComponent } from '../canvas/canvas.component';
+import { ChatPanelComponent } from '../chat/chat-panel.component';
 import type { Workspace } from '../core/types';
 
 @Component({
   selector: 'app-workspace-layout',
   standalone: true,
-  imports: [CommonModule, RouterLink, CanvasComponent],
+  imports: [CommonModule, RouterLink, CanvasComponent, ChatPanelComponent],
   template: `
     <div class="workspace-shell" [attr.data-workspace-id]="workspaceId()">
 
@@ -49,19 +50,14 @@ import type { Workspace } from '../core/types';
       <!-- ── Main content area ─────────────────────────────────── -->
       <div class="ws-body">
 
-        <!-- Left toolbar (Phase 4) -->
-        <aside class="ws-toolbar" aria-label="Canvas tools">
-          <div class="tool-placeholder">Canvas tools (Phase 4)</div>
-        </aside>
-
-        <!-- Main canvas viewport -->
+        <!-- Main canvas (includes its own toolbar) -->
         <main class="ws-canvas-area" aria-label="Canvas">
           <app-canvas [workspaceId]="workspaceId()" />
         </main>
 
-        <!-- Right chat panel (Phase 6) -->
+        <!-- Right chat panel -->
         <aside class="ws-chat-panel" aria-label="Chat">
-          <div class="chat-placeholder">Chat panel (Phase 6)</div>
+          <app-chat-panel [workspaceId]="workspaceId()" />
         </aside>
       </div>
 

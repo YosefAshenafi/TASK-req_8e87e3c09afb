@@ -10,7 +10,7 @@
   background: #fafafa;
 }
 
-// ── Header ──────────────────────────────────────────────────────────────────
+// ── Header ────────────────────────────────────────────────────────────────────
 .ws-header {
   display: flex;
   align-items: center;
@@ -67,61 +67,32 @@
   &:hover { background: #f0f0f0; }
 }
 
-// ── Body ─────────────────────────────────────────────────────────────────────
+// ── Body ──────────────────────────────────────────────────────────────────────
 .ws-body {
   display: flex;
   flex: 1;
-  min-height: 0;
+  min-height: 0;  // critical: allows flex children to shrink below their content height
 }
 
-.ws-toolbar {
-  width: 56px;
-  background: #fff;
-  border-right: 1px solid #e0e0e0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 12px 0;
-  flex-shrink: 0;
-}
-
-.tool-placeholder {
-  writing-mode: vertical-rl;
-  color: #aaa;
-  font-size: 0.75rem;
-  margin-top: 24px;
-}
-
+// Canvas takes all remaining horizontal space
 .ws-canvas-area {
   flex: 1;
-  position: relative;
-  overflow: hidden;
-  background: #f0f0f0;
-}
-
-.canvas-placeholder {
-  position: absolute;
-  inset: 0;
-  display: flex;
+  display: flex;          // pass flex context down to app-canvas
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: #aaa;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.ws-id { font-size: 0.75rem; }
-
+// Chat panel — fixed width, full height of body
 .ws-chat-panel {
   width: 280px;
-  background: #fff;
-  border-left: 1px solid #e0e0e0;
   flex-shrink: 0;
+  border-left: 1px solid #e0e0e0;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  min-height: 0;
 }
-
-.chat-placeholder { color: #aaa; font-size: 0.85rem; }
 
 // ── Footer ────────────────────────────────────────────────────────────────────
 .ws-footer {

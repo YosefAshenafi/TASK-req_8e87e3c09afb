@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { DbService } from '../core/db.service';
 import { BroadcastService } from '../core/broadcast.service';
 import { TabIdentityService } from '../core/tab-identity.service';
+import { AuthService } from '../auth/auth.service';
 import type { ChatMessage } from '../core/types';
 
 const ROLLING_WINDOW = 500;
@@ -22,6 +23,7 @@ export class ChatService {
     private readonly db: DbService,
     private readonly broadcast: BroadcastService,
     private readonly tab: TabIdentityService,
+    private readonly auth: AuthService,
   ) {
     this._listenForChat();
   }
@@ -75,11 +77,14 @@ export class ChatService {
 
   private async _writeMessage(partial: Pick<ChatMessage, 'type' | 'body'>): Promise<ChatMessage> {
     const idb = await this.db.open();
+    const profile = this.auth.currentProfile;
     const message: ChatMessage = {
       id: uuidv4(),
       workspaceId: this._workspaceId,
       type: partial.type,
-      ...(partial.type === 'user' ? { authorId: this.tab.tabId } : {}),
+      ...(partial.type === 'user' && profile
+        ? { authorId: profile.id, authorName: profile.username }
+        : {}),
       body: partial.body,
       createdAt: Date.now(),
     };

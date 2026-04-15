@@ -2,70 +2,178 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  position: relative;
+  min-height: 0;
 }
 
+// ── Toolbar ───────────────────────────────────────────────────────────────────
 .canvas-toolbar {
   display: flex;
-  gap: 4px;
-  padding: 6px 8px;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 10px;
   background: #fff;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid #e8e8e8;
+  flex-shrink: 0;
+  overflow-x: auto;
+
+  // Hide scrollbar on toolbar — it's just for overflow safety
+  &::-webkit-scrollbar { display: none; }
+  scrollbar-width: none;
+}
+
+// Base tool button — icon-only, square
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 30px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #444;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+
+  svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+    pointer-events: none;
+    overflow: visible; // allow stroke outside tight viewBox
+  }
+
+  &:hover:not(:disabled) {
+    background: #f0f4ff;
+    color: #1e88e5;
+    border-color: #d0e4fc;
+  }
+
+  &.active {
+    background: #e3f0fd;
+    color: #1565c0;
+    border-color: #90caf9;
+  }
+
+  &:disabled { opacity: 0.3; cursor: not-allowed; }
+}
+
+// Zoom percentage label — clickable "reset" button styled as text
+.zoom-pct-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 8px;
+  min-width: 48px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  background: #f8f8f8;
+  color: #555;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.1s;
+
+  &:hover { background: #eee; color: #222; }
+}
+
+.icon-btn { width: 28px; height: 28px; }
+
+.toolbar-sep {
+  width: 1px;
+  height: 18px;
+  background: #e4e4e4;
+  margin: 0 3px;
   flex-shrink: 0;
 }
 
-.tool-btn {
-  width: 36px;
-  height: 36px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  background: #f9f9f9;
-  cursor: pointer;
-  font-size: 1rem;
-  transition: background 0.12s, border-color 0.12s;
-
-  &:hover { background: #e8f0fe; border-color: #1e88e5; }
-  &.active { background: #1e88e5; color: #fff; border-color: #1565c0; }
+.tool-hint {
+  font-size: 0.69rem;
+  color: #aaa;
+  white-space: nowrap;
+  padding: 0 6px;
+  user-select: none;
 }
 
+// ── Viewport ──────────────────────────────────────────────────────────────────
 .canvas-viewport {
   flex: 1;
+  overflow: auto;          // native scroll — handles two-finger swipe
+  min-height: 0;
+  background: #d8d8d8;
   position: relative;
-  overflow: auto;
-  background:
-    radial-gradient(circle, #bbb 1px, transparent 1px) 0 0 / 24px 24px,
-    #f0f0f0;
+
+  // Nice subtle inset shadow so the canvas "floats"
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.12);
 }
 
-.shape-canvas {
+// ── Scroll-area spacer ────────────────────────────────────────────────────────
+// Sized to CANVAS_W*zoom × CANVAS_H*zoom via inline styles.
+// overflow:hidden contains the scaled content's layout box so scrollbars
+// track the correct zoomed dimensions.
+.canvas-scroll-area {
+  position: relative;
+  overflow: hidden;
+}
+
+// ── Scaled content ────────────────────────────────────────────────────────────
+// width/height = CANVAS_W × CANVAS_H (set inline).
+// transform: scale(zoom), transform-origin: 0 0 (set inline).
+.canvas-content {
   position: absolute;
   top: 0;
   left: 0;
-  pointer-events: none;
+  transform-origin: 0 0;
+
+  background:
+    radial-gradient(circle, #c8c8c8 1px, transparent 1px) 0 0 / 24px 24px,
+    #f2f2f2;
 }
 
-// ── Sticky notes ─────────────────────────────────────────────────────────────
+// ── Canvas layers ─────────────────────────────────────────────────────────────
+.layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none; // mouse events bubble to the viewport div
+}
+
+.preview-layer {
+  z-index: 2;
+}
+
+// ── Sticky notes ──────────────────────────────────────────────────────────────
 .sticky-note {
   position: absolute;
   width: 160px;
   min-height: 120px;
-  border-radius: 6px;
-  box-shadow: 2px 3px 8px rgba(0, 0, 0, 0.15);
-  padding: 8px;
+  border-radius: 4px;
+  box-shadow: 1px 2px 6px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  padding: 8px 10px;
   cursor: grab;
   user-select: none;
   display: flex;
   flex-direction: column;
+  z-index: 10;
 
-  &.selected { outline: 2px solid #1e88e5; }
+  &.selected { outline: 2px solid #1e88e5; outline-offset: 2px; }
+  &:active   { cursor: grabbing; }
 }
 
 .note-text {
   flex: 1;
   margin: 0;
-  font-size: 0.875rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
   word-break: break-word;
   white-space: pre-wrap;
+  pointer-events: none;
+  color: #333;
 }
 
 .note-textarea {
@@ -74,53 +182,65 @@
   resize: none;
   border: none;
   background: transparent;
-  font-size: 0.875rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
   font-family: inherit;
   outline: none;
   min-height: 80px;
+  color: #333;
 }
 
 .char-count {
-  font-size: 0.7rem;
-  color: #888;
+  font-size: 0.65rem;
+  color: #bbb;
   text-align: right;
-  &.at-limit { color: #c00; }
+  margin-top: 2px;
+  &.at-limit { color: #e53935; font-weight: 600; }
 }
 
-// ── Conflict drawer ──────────────────────────────────────────────────────────
+// ── Conflict drawer ───────────────────────────────────────────────────────────
 .conflict-drawer {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 200;
+  z-index: 300;
+  backdrop-filter: blur(2px);
 }
 
 .conflict-card {
   background: #fff;
-  padding: 24px;
-  border-radius: 10px;
+  padding: 24px 28px;
+  border-radius: 12px;
   max-width: 360px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
 
-  h4 { margin-top: 0; color: #c00; }
-  p { font-size: 0.9rem; color: #555; }
+  h4 { margin: 0 0 8px; color: #c62828; font-size: 1rem; }
+  p  { margin: 0 0 16px; font-size: 0.88rem; color: #555; line-height: 1.5; }
 }
 
 .conflict-actions {
   display: flex;
   gap: 8px;
-  margin-top: 16px;
   flex-wrap: wrap;
+
+  button {
+    padding: 7px 15px;
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.84rem;
+    background: #f6f6f6;
+    transition: background 0.12s;
+    &:hover { background: #ebebeb; }
+  }
 }
 
 .btn-primary {
-  padding: 8px 16px;
-  background: #1e88e5;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
+  background: #1e88e5 !important;
+  color: #fff !important;
+  border-color: transparent !important;
+  &:hover { background: #1565c0 !important; }
 }
