@@ -4,9 +4,7 @@
 #  Runs all tests inside Docker. No local binaries required.
 #
 #  Usage:
-#    ./run_tests.sh              # skips build if all images are present
-#    ./run_tests.sh --rebuild    # forces a rebuild of all test images
-#    REBUILD=1 ./run_tests.sh    # same, via env var
+#    ./run_tests.sh
 #    KEEP_PROD=0 ./run_tests.sh  # stop prod at the end (default: keep running)
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
