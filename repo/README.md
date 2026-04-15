@@ -18,7 +18,7 @@ No Node.js, npm, ng, or Playwright installation on the host is needed or allowed
 docker compose up
 ```
 
-Open `http://localhost:4200` in your browser.
+Open `http://localhost:8080` in your browser.
 
 > **No default credentials required.** The app will walk you through creating a profile on first launch.
 

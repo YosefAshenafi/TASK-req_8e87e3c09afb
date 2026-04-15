@@ -112,4 +112,58 @@ test.describe('Canvas workspace', () => {
     // The board should have some create/add post UI
     await expect(page.getByLabel('Mutual Help Board')).toBeVisible();
   });
+
+  // ── Canvas toolbar ────────────────────────────────────────────────────────
+
+  test('canvas toolbar is visible', async ({ page }) => {
+    await expect(page.getByRole('toolbar', { name: 'Canvas tools' })).toBeVisible();
+  });
+
+  test('sticky note tool button is present in toolbar', async ({ page }) => {
+    await expect(page.locator('[title="Sticky Note (N)"]')).toBeVisible();
+  });
+
+  test('select tool button is present in toolbar', async ({ page }) => {
+    await expect(page.locator('[title="Select (V)"]')).toBeVisible();
+  });
+
+  test('clicking sticky note tool activates it', async ({ page }) => {
+    const stickyBtn = page.locator('[title="Sticky Note (N)"]');
+    await stickyBtn.click();
+    await expect(stickyBtn).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  // ── Sticky note placement ─────────────────────────────────────────────────
+
+  test('placing a sticky note on canvas creates a note element', async ({ page }) => {
+    // Activate sticky-note tool
+    await page.locator('[title="Sticky Note (N)"]').click();
+
+    // Click centre of canvas viewport to place a note
+    const viewport = page.locator('.canvas-viewport');
+    await viewport.click({ position: { x: 200, y: 200 } });
+
+    // A sticky-note DOM element should appear
+    await expect(page.locator('.sticky-note').first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('placed sticky note has an editable text area', async ({ page }) => {
+    await page.locator('[title="Sticky Note (N)"]').click();
+    const viewport = page.locator('.canvas-viewport');
+    await viewport.click({ position: { x: 200, y: 200 } });
+
+    const textarea = page.locator('[aria-label="Sticky note text"]').first();
+    await expect(textarea).toBeVisible({ timeout: 5000 });
+  });
+
+  test('zoom controls are present and functional', async ({ page }) => {
+    const zoomPct = page.locator('.zoom-pct-btn');
+    await expect(zoomPct).toBeVisible();
+    await expect(zoomPct).toContainText('%');
+
+    // Zoom in
+    await page.locator('[title="Zoom in (+)"]').click();
+    const afterZoom = await zoomPct.textContent();
+    expect(afterZoom).toContain('%');
+  });
 });
