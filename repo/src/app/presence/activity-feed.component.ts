@@ -73,7 +73,7 @@ function relativeTime(at: number): string {
     </div>
   `,
   styles: [`
-    .activity-panel { position:absolute; top:0; right:0; width:280px; height:100%; background:#fff; box-shadow:-4px 0 12px rgba(0,0,0,0.1); display:flex; flex-direction:column; z-index:100; }
+    .activity-panel { width:280px; max-height:420px; background:#fff; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.15); border:1px solid #e8e8e8; display:flex; flex-direction:column; overflow:hidden; }
     .activity-header { display:flex; justify-content:space-between; align-items:center; padding:12px 14px; border-bottom:1px solid #eee; flex-shrink:0; }
     .activity-title { font-weight:600; font-size:0.9rem; color:#333; }
     .close-btn { background:none; border:none; font-size:1.4rem; cursor:pointer; color:#888; padding:0; line-height:1; }

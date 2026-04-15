@@ -47,7 +47,7 @@ import type { InboxItem } from '../core/types';
     </div>
   `,
   styles: [`
-    .inbox-panel { position:absolute; top:calc(100% + 8px); right:0; width:320px; max-height:400px; overflow-y:auto; background:#fff; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.15); z-index:200; border:1px solid #e8e8e8; }
+    .inbox-panel { width:320px; max-height:420px; overflow-y:auto; background:#fff; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.15); border:1px solid #e8e8e8; }
     .inbox-header { display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-bottom:1px solid #eee; position:sticky; top:0; background:#fff; }
     .inbox-title { font-weight:600; font-size:0.875rem; display:flex; align-items:center; gap:6px; }
     .unread-badge { background:#e53935; color:#fff; border-radius:10px; font-size:0.68rem; font-weight:700; padding:2px 7px; }

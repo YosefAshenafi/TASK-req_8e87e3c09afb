@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { DbService } from '../core/db.service';
 import { BroadcastService } from '../core/broadcast.service';
 import { TabIdentityService } from '../core/tab-identity.service';
+import { AuthService } from '../auth/auth.service';
 import { AppException } from '../core/error';
 import type { CommentThread, InboxItem, Reply } from '../core/types';
 
@@ -28,6 +29,7 @@ export class CommentService {
     private readonly db: DbService,
     private readonly broadcast: BroadcastService,
     private readonly tab: TabIdentityService,
+    private readonly auth: AuthService,
   ) {
     this._listenForComments();
   }
@@ -40,7 +42,7 @@ export class CommentService {
     return this._threads$.get(targetId)!.asObservable();
   }
 
-  async openOrCreateThread(targetId: string): Promise<CommentThread> {
+  async openOrCreateThread(targetId: string, workspaceId = ''): Promise<CommentThread> {
     const idb = await this.db.open();
     const existing = await idb.getFromIndex('comments', 'by_target', targetId);
     if (existing) return existing as CommentThread;
@@ -48,7 +50,7 @@ export class CommentService {
     const now = Date.now();
     const thread: CommentThread = {
       id: uuidv4(),
-      workspaceId: '', // set by caller when available
+      workspaceId,
       targetId,
       replies: [],
       readBy: [],
@@ -73,9 +75,11 @@ export class CommentService {
       });
     }
 
+    const profile = this.auth.currentProfile;
     const reply: Reply = {
       id: uuidv4(),
-      authorId: this.tab.tabId,
+      authorId: profile?.id ?? this.tab.tabId,
+      authorName: profile?.username,
       body,
       mentions,
       createdAt: Date.now(),
@@ -89,21 +93,26 @@ export class CommentService {
     await idb.put('comments', updated);
     this._updateThreadSubject(updated);
 
-    // Add inbox items for @mentions
-    for (const mentionedId of mentions) {
+    // Add inbox item if the current user's username was @mentioned
+    const currentUsername = this.auth.currentProfile?.username;
+    const currentProfileId = this.auth.currentProfile?.id;
+    const selfMentioned = currentUsername && mentions.includes(currentUsername);
+    if (selfMentioned && currentProfileId) {
       this._addInboxItem({
         id: uuidv4(),
         threadId,
         workspaceId: thread.workspaceId,
         targetId: thread.targetId,
-        mentionedBy: this.tab.tabId,
+        mentionedBy: profile?.username ?? this.tab.tabId,
         body,
         at: Date.now(),
         read: false,
-      }, mentionedId);
+      });
     }
 
-    this.broadcast.publish({ kind: 'comment', threadId, reply });
+    // Broadcast so other tabs can check if their user was mentioned
+    this.broadcast.publish({ kind: 'comment', threadId, reply, mentions });
+
     return reply;
   }
 
@@ -139,7 +148,7 @@ export class CommentService {
     if (subject) subject.next(thread);
   }
 
-  private _addInboxItem(item: InboxItem, _mentionedProfileId: string): void {
+  private _addInboxItem(item: InboxItem): void {
     this._inbox$.next([item, ...this._inbox$.value]);
   }
 
@@ -156,6 +165,22 @@ export class CommentService {
       };
       await idb.put('comments', updated);
       this._updateThreadSubject(updated);
+
+      // Check if the current user was mentioned in this incoming reply
+      const currentUsername = this.auth.currentProfile?.username;
+      const mentions: string[] = msg.mentions ?? [];
+      if (currentUsername && mentions.includes(currentUsername)) {
+        this._addInboxItem({
+          id: uuidv4(),
+          threadId: msg.threadId,
+          workspaceId: thread.workspaceId,
+          targetId: thread.targetId,
+          mentionedBy: msg.reply.authorName ?? msg.reply.authorId,
+          body: msg.reply.body,
+          at: Date.now(),
+          read: false,
+        });
+      }
     });
   }
 }

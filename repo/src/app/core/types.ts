@@ -65,8 +65,9 @@ export interface CanvasObject {
 export interface Reply {
   id: string;
   authorId: string;
+  authorName?: string; // denormalised display name
   body: string;
-  mentions: string[];
+  mentions: string[];  // usernames extracted from @mention syntax
   createdAt: number;
 }
 

@@ -196,13 +196,22 @@
   font-family: monospace;
 }
 
-// ── Overlay panels ─────────────────────────────────────────────────────────────
-.inbox-overlay,
-.activity-overlay {
+// ── Header dropdown anchors ────────────────────────────────────────────────────
+// Each button + its panel live in a relative wrapper so the panel drops
+// directly below the button regardless of where the button sits in the header.
+.header-dropdown {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.header-panel {
   position: absolute;
-  top: 52px; // below header
-  right: 288px; // to the left of the chat panel (280px + 8px gap)
-  z-index: 200;
+  top: calc(100% + 6px); // 6 px gap below the button
+  right: 0;              // right-align with the button edge
+  z-index: 300;
+  // Shadow so it reads as a floating layer above content
+  filter: drop-shadow(0 4px 16px rgba(0,0,0,0.18));
 }
 
 .peer-avatar {

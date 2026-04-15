@@ -105,39 +105,56 @@ function peerInitials(name: string): string {
           }
         </div>
 
-        <!-- Activity feed toggle -->
-        <button
-          class="header-btn"
-          [class.active]="showActivityFeed()"
-          (click)="showActivityFeed.update(v => !v)"
-          aria-label="Toggle activity feed"
-          title="Activity feed"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-               stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"
-               style="width:16px;height:16px;display:block">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-          </svg>
-        </button>
-
-        <!-- Inbox button -->
-        <button
-          class="header-btn inbox-btn"
-          [class.active]="showInbox()"
-          (click)="showInbox.update(v => !v)"
-          aria-label="Toggle inbox"
-          title="Inbox"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-               stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"
-               style="width:16px;height:16px;display:block">
-            <polyline points="22 13 16 13 14 16 10 16 8 13 2 13"/>
-            <path d="M5.45 5.11 2 13v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-7.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
-          </svg>
-          @if (unreadCount() > 0) {
-            <span class="inbox-badge">{{ unreadCount() }}</span>
+        <!-- Activity feed toggle + dropdown -->
+        <div class="header-dropdown">
+          <button
+            class="header-btn"
+            [class.active]="showActivityFeed()"
+            (click)="showActivityFeed.update(v => !v)"
+            aria-label="Toggle activity feed"
+            title="Activity feed"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                 stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"
+                 style="width:16px;height:16px;display:block">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+          </button>
+          @if (showActivityFeed()) {
+            <div class="header-panel">
+              <app-activity-feed (closed)="showActivityFeed.set(false)" />
+            </div>
           }
-        </button>
+        </div>
+
+        <!-- Inbox toggle + dropdown -->
+        <div class="header-dropdown">
+          <button
+            class="header-btn inbox-btn"
+            [class.active]="showInbox()"
+            (click)="showInbox.update(v => !v)"
+            aria-label="Toggle inbox"
+            title="Inbox"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                 stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"
+                 style="width:16px;height:16px;display:block">
+              <polyline points="22 13 16 13 14 16 10 16 8 13 2 13"/>
+              <path d="M5.45 5.11 2 13v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-7.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
+            </svg>
+            @if (unreadCount() > 0) {
+              <span class="inbox-badge">{{ unreadCount() }}</span>
+            }
+          </button>
+          @if (showInbox()) {
+            <div class="header-panel">
+              <app-inbox-panel
+                [profileId]="profileId()"
+                (closed)="showInbox.set(false)"
+              />
+            </div>
+          }
+        </div>
       </header>
 
       <!-- ── Main content area ────────────────────────────────────── -->
@@ -182,23 +199,6 @@ function peerInitials(name: string): string {
           [username]="auth.currentProfile?.username ?? ''"
           (closed)="commentTargetId.set(null)"
         />
-      }
-
-      <!-- ── Inbox panel ────────────────────────────────────────── -->
-      @if (showInbox()) {
-        <div class="inbox-overlay">
-          <app-inbox-panel
-            [profileId]="profileId()"
-            (closed)="showInbox.set(false)"
-          />
-        </div>
-      }
-
-      <!-- ── Activity feed panel ────────────────────────────────── -->
-      @if (showActivityFeed()) {
-        <div class="activity-overlay">
-          <app-activity-feed (closed)="showActivityFeed.set(false)" />
-        </div>
       }
 
       <!-- ── Footer status bar ──────────────────────────────────── -->

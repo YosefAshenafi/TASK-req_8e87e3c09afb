@@ -43,7 +43,7 @@ const AVATAR_COLORS = [
             </div>
             <div class="reply-content">
               <div class="reply-meta">
-                <span class="reply-author">{{ reply.authorId.slice(0, 8) }}</span>
+                <span class="reply-author">{{ reply.authorName ?? reply.authorId.slice(0, 8) }}</span>
                 <span class="reply-time">{{ reply.createdAt | date:'HH:mm' }}</span>
               </div>
               <div class="reply-body">{{ reply.body }}</div>
@@ -153,7 +153,7 @@ export class CommentDrawerComponent implements OnInit, OnDestroy, AfterViewCheck
     try {
       let thread = this.thread;
       if (!thread) {
-        thread = await this.commentService.openOrCreateThread(this.targetId);
+        thread = await this.commentService.openOrCreateThread(this.targetId, this.workspaceId);
       }
 
       const mentions = this.parseMentions(body);

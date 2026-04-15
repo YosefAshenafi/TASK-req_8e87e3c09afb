@@ -42,6 +42,7 @@ interface CommentMsg extends BaseMsg {
   kind: 'comment';
   threadId: string;
   reply: Reply;
+  mentions: string[]; // usernames (@alice → 'alice') for cross-tab inbox delivery
 }
 
 interface SystemMsg extends BaseMsg {
