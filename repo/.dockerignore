@@ -1,6 +1,8 @@
 node_modules
 dist
 .git
+# Flat ESLint only — audit + compose use eslint.config.js (see unit_tests/audit-report-2.spec.ts)
+.eslintrc.json
 *.log
 coverage
 .env

@@ -3,9 +3,9 @@
  * Tests the complete mutual help post lifecycle — draft, publish, edit,
  * pin, withdraw, and automatic expiry sweep.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { firstValueFrom } from 'rxjs';
-import { makeFullContext } from './helpers';
+import { makeFullContext, signUp } from './helpers';
 import type { FullContext } from './helpers';
 import type { NewPostInput } from '../src/app/core/types';
 
@@ -29,7 +29,14 @@ describe('Mutual Help API — full lifecycle', () => {
 
   beforeEach(async () => {
     ctx = makeFullContext();
+    await signUp(ctx.auth, 'mhapiuser', 'password123', 'Admin');
+    await ctx.chat.loadForWorkspace(WS);
     await ctx.mutualHelp.loadForWorkspace(WS);
+  });
+
+  afterEach(() => {
+    ctx.mutualHelp.unload();
+    vi.restoreAllMocks();
   });
 
   it('draft → publish → verify status transition', async () => {
@@ -146,5 +153,46 @@ describe('Mutual Help API — full lifecycle', () => {
 
     const posts = await firstValueFrom(ctx.mutualHelp.posts$);
     expect(posts).toHaveLength(3);
+  });
+
+  it('postsValue mirrors the current posts$ snapshot', async () => {
+    await ctx.mutualHelp.createDraft(makeInput({ title: 'Snapshot post' }));
+    const from$ = await firstValueFrom(ctx.mutualHelp.posts$);
+    expect(ctx.mutualHelp.postsValue).toEqual(from$);
+  });
+
+  it('resolve marks post resolved, emits telemetry, posts system chat, and logs activity', async () => {
+    const draft = await ctx.mutualHelp.createDraft(makeInput({ title: 'To resolve' }));
+    await ctx.mutualHelp.publish(draft.id);
+    await ctx.mutualHelp.resolve(draft.id);
+
+    const posts = await firstValueFrom(ctx.mutualHelp.posts$);
+    expect(posts.find(p => p.id === draft.id)?.status).toBe('resolved');
+
+    const messages = await firstValueFrom(ctx.chat.messages$);
+    expect(
+      messages.some(
+        m => m.type === 'system' && m.body.includes('resolved') && m.body.includes('To resolve'),
+      ),
+    ).toBe(true);
+  });
+
+  it('unload stops the expiry sweep timer without throwing', () => {
+    expect(() => ctx.mutualHelp.unload()).not.toThrow();
+  });
+
+  it('sweep interval calls sweepExpired when the document is visible', async () => {
+    vi.useFakeTimers();
+    try {
+      ctx.mutualHelp.unload();
+      const spy = vi.spyOn(ctx.mutualHelp, 'sweepExpired');
+      await ctx.mutualHelp.loadForWorkspace(WS);
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(spy).toHaveBeenCalled();
+    } finally {
+      ctx.mutualHelp.unload();
+      vi.useRealTimers();
+    }
   });
 });

@@ -97,7 +97,7 @@ describe('H-02 (resolved): comment drawer uses correct "events" store for roster
 
   it('roster built from events store contains profiles that logged workspace events', async () => {
     const WS = 'ws-h02-roster-scoped';
-    await ctx.auth.createProfile({ username: 'bob', password: 'pw123', role: 'Editor' });
+    await ctx.auth.createProfile({ username: 'bob', password: 'password123', role: 'Teacher' });
 
     // Only alice logs an event in this workspace
     ctx.telemetry.log({
@@ -128,7 +128,7 @@ describe('H-02 (resolved): comment drawer uses correct "events" store for roster
   });
 
   it('roster falls back to all profiles when workspace has no events', async () => {
-    await ctx.auth.createProfile({ username: 'carol', password: 'pw123', role: 'Viewer' });
+    await ctx.auth.createProfile({ username: 'carol', password: 'password123', role: 'Teacher' });
 
     const WS = 'ws-h02-no-events';
     const idb = await ctx.db.open();
@@ -144,7 +144,7 @@ describe('H-02 (resolved): comment drawer uses correct "events" store for roster
 
   it('multiple events from different profiles all land in profileIds set', async () => {
     const WS = 'ws-h02-multi-profile';
-    const bob = await ctx.auth.createProfile({ username: 'bob', password: 'pw123', role: 'Editor' });
+    const bob = await ctx.auth.createProfile({ username: 'bob', password: 'password123', role: 'Teacher' });
 
     ctx.telemetry.log({
       workspaceId: WS,
@@ -185,7 +185,8 @@ describe('Medium (resolved): canonical test path is unambiguous in Makefile and 
 
   it('Makefile labels the legacy target as deprecated', () => {
     const makefile = readFileSync(resolve(ROOT, 'Makefile'), 'utf8');
-    const legacySection = makefile.slice(makefile.indexOf('test-legacy'));
+    // Match the target `test-legacy:` — not `.PHONY: ... test-legacy ...`
+    const legacySection = makefile.slice(makefile.indexOf('test-legacy:'));
     expect(legacySection.slice(0, 200).toLowerCase()).toContain('deprecated');
   });
 

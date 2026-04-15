@@ -12,5 +12,8 @@ RUN npm ci
 # Copy all source files
 COPY . .
 
+# Never ship legacy ESLint config — image may have been built before .dockerignore excluded it
+RUN rm -rf /workspace/.eslintrc.json
+
 # Default command (overridden per-service in docker-compose)
 CMD ["npm", "run", "test:unit"]

@@ -160,6 +160,13 @@ services:
       - ./package.json:/workspace/package.json
       - ./package-lock.json:/workspace/package-lock.json
       - ./coverage:/workspace/coverage
+      # Audit / static checks in unit_tests read these repo-root files — bind-mount
+      # so Docker runs match the working tree (image layers can be stale vs host).
+      - ./Makefile:/workspace/Makefile
+      - ./README.md:/workspace/README.md
+      - ./run_tests.sh:/workspace/run_tests.sh
+      - ./docker-compose.yml:/workspace/docker-compose.yml
+      - ./eslint.config.js:/workspace/eslint.config.js
 
   # ── Vitest API (integration) tests ────────────────────────────────────────
   api-test:
