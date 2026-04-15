@@ -18,10 +18,12 @@ No Node.js, npm, ng, or Playwright installation on the host is needed or allowed
 # Clone and start the dev server (Angular hot-reload on :4200)
 git clone <repo-url>
 cd repo
-docker compose up dev
+docker compose up
 ```
 
 Open `http://localhost:4200` in your browser.
+
+> **No default credentials required.** If no user profile exists yet, the app will walk you through creating one on first launch.
 
 ---
 
@@ -29,7 +31,7 @@ Open `http://localhost:4200` in your browser.
 
 | Task | Command |
 |---|---|
-| Start dev server | `make dev` or `docker compose up dev` |
+| Start dev server | `make dev` or `docker compose up` |
 | Run unit tests | `make test` |
 | Run e2e tests | `make e2e` |
 | Production build | `make build` |
@@ -39,6 +41,18 @@ Open `http://localhost:4200` in your browser.
 | Destroy volumes (fresh install) | `make clean` |
 
 All `make` targets map directly to `docker compose run --rm <service> ...`.
+
+---
+
+## Running tests
+
+A single script runs the full test suite (unit, API, and E2E) inside Docker — no local binaries required:
+
+```bash
+./run_tests.sh              # skips image build if all images are present
+./run_tests.sh --rebuild    # forces a rebuild of all test images
+REBUILD=1 ./run_tests.sh    # same, via env var
+```
 
 ---
 
@@ -65,33 +79,3 @@ It is **never** host-mounted. If you run `ls node_modules` on your Mac, it will 
 >
 > Always use the Docker services above.
 
----
-
-## Project structure
-
-```
-repo/
-├── src/
-│   ├── app/
-│   │   ├── core/          # DB, prefs, broadcast, tab-identity services
-│   │   ├── auth/          # Profile management, PBKDF2, lockout
-│   │   ├── workspace/     # Workspace shell and routing
-│   │   ├── canvas/        # Drawing surface, sticky notes
-│   │   ├── comments/      # Threaded comment drawer
-│   │   ├── chat/          # Chat panel (500-message window)
-│   │   ├── presence/      # Avatar bar, cursors, activity feed
-│   │   ├── mutual-help/   # Request/offer board
-│   │   ├── import-export/ # CSV/JSON import, workspace packages
-│   │   ├── snapshot/      # Auto-save + rollback
-│   │   ├── telemetry/     # Events, KPIs, daily warehouse
-│   │   └── reporting/     # Daily warehouse view
-│   ├── environments/      # Feature flags (enableServiceWorker, enableFSAccess)
-│   └── workers/           # aggregator.worker.ts (Web Worker)
-├── e2e/                   # Playwright multi-tab specs
-├── Dockerfile.dev
-├── Dockerfile.e2e
-├── Dockerfile.prod
-├── docker-compose.yml
-├── Makefile
-└── nginx.conf
-```
