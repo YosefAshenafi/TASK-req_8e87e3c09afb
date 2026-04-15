@@ -1,12 +1,16 @@
-.PHONY: dev test e2e build prod lint shell clean
+.PHONY: dev test test-legacy e2e build prod lint shell clean
 
 ## Start the Angular dev server (hot-reload on :4200)
 dev:
 	docker compose up dev
 
-## Run Karma/Jasmine unit + component tests (CI mode)
+## Run the canonical Vitest + Playwright test suite (primary CI path)
 test:
-	docker compose run --rm test
+	./run_tests.sh
+
+## DEPRECATED: Legacy Karma/Jasmine runner — use `make test` (Vitest) instead
+test-legacy:
+	docker compose --profile ng-test run --rm test
 
 ## Run Playwright e2e tests — delegates to the primary repo/e2e_tests/ suite.
 ## The legacy repo/e2e/ harness is deprecated; use `npm run test:e2e` directly.

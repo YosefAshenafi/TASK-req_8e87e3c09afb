@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import Papa from 'papaparse';
 import { DbService } from '../core/db.service';
 import { ChatService } from '../chat/chat.service';
+import { BroadcastService } from '../core/broadcast.service';
 import { AppException } from '../core/error';
 import type { ColumnMapping, ImportRow, ImportRowError } from '../core/types';
 import { v4 as uuidv4 } from 'uuid';
@@ -19,6 +20,8 @@ export class NoteImportService {
   constructor(
     private readonly db: DbService,
     private readonly chat: ChatService,
+    // Optional so unit tests that construct NoteImportService directly keep working.
+    private readonly broadcast: BroadcastService | null = null,
   ) {}
 
   /** Parse the file — returns raw rows. Throws if row count > 1000. */
@@ -103,6 +106,9 @@ export class NoteImportService {
       });
     }
     await tx.done;
+
+    // Notify all other tabs to reload the canvas for this workspace.
+    this.broadcast?.publish({ kind: 'canvas-reload', workspaceId });
 
     await this.chat.postSystem(`Bulk import: ${rows.length} note${rows.length !== 1 ? 's' : ''} added to the canvas.`);
     return { committed: rows.length, errors: [] };

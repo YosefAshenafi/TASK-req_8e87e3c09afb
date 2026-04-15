@@ -2,7 +2,7 @@ import { Injectable, OnDestroy } from '@angular/core';
 import { Subject, Observable, Subscription } from 'rxjs';
 import { throttleTime, debounceTime, filter } from 'rxjs/operators';
 import { TabIdentityService } from './tab-identity.service';
-import type { PersonaRole, ActivityEntry, ChatMessage, Reply, JsonPatch } from './types';
+import type { PersonaRole, ActivityEntry, ChatMessage, Reply, JsonPatch, CanvasObject } from './types';
 
 // ── Message types ────────────────────────────────────────────────────────────
 
@@ -55,6 +55,21 @@ interface ActivityMsg extends BaseMsg {
   entry: ActivityEntry;
 }
 
+interface CanvasAddMsg extends BaseMsg {
+  kind: 'canvas-add';
+  object: CanvasObject;
+}
+
+interface CanvasDeleteMsg extends BaseMsg {
+  kind: 'canvas-delete';
+  objectId: string;
+}
+
+interface CanvasReloadMsg extends BaseMsg {
+  kind: 'canvas-reload';
+  workspaceId: string;
+}
+
 export type BroadcastEnvelope =
   | PresenceMsg
   | CursorMsg
@@ -62,7 +77,10 @@ export type BroadcastEnvelope =
   | EditMsg
   | CommentMsg
   | SystemMsg
-  | ActivityMsg;
+  | ActivityMsg
+  | CanvasAddMsg
+  | CanvasDeleteMsg
+  | CanvasReloadMsg;
 
 export type BroadcastKind = BroadcastEnvelope['kind'];
 

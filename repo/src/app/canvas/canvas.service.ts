@@ -73,6 +73,7 @@ export class CanvasService {
     };
     await idb.put('canvas_objects', obj);
     this._objects$.next([...this._objects$.value, obj]);
+    this.broadcast.publish({ kind: 'canvas-add', object: obj });
 
     // H-05: emit telemetry for KPI aggregation
     if (obj.type === 'sticky-note') {
@@ -159,6 +160,7 @@ export class CanvasService {
     }
     await idb.delete('canvas_objects', id);
     this._objects$.next(this._objects$.value.filter(o => o.id !== id));
+    this.broadcast.publish({ kind: 'canvas-delete', objectId: id });
 
     // System message for canvas deletion
     await this.chat?.postSystem(`A ${existing.type} was deleted from the canvas.`);
@@ -191,6 +193,23 @@ export class CanvasService {
       } catch {
         // Malformed patch — ignore
       }
+    });
+
+    // Sync canvas-add from other tabs: update in-memory state only (sender already wrote IDB).
+    this.broadcast.on('canvas-add').subscribe(msg => {
+      if (!this._objects$.value.find(o => o.id === msg.object.id)) {
+        this._objects$.next([...this._objects$.value, msg.object]);
+      }
+    });
+
+    // Sync canvas-delete from other tabs.
+    this.broadcast.on('canvas-delete').subscribe(msg => {
+      this._objects$.next(this._objects$.value.filter(o => o.id !== msg.objectId));
+    });
+
+    // Reload canvas after a bulk import from any tab.
+    this.broadcast.on('canvas-reload').subscribe(async msg => {
+      await this.loadForWorkspace(msg.workspaceId);
     });
   }
 

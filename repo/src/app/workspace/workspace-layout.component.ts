@@ -471,7 +471,8 @@ export class WorkspaceLayoutComponent implements OnInit, OnDestroy {
   }
 
   protected onNotesImported(_count: number): void {
-    // Wizard handles its own toast; nothing to do here right now.
+    const id = this.workspaceId();
+    if (id) void this.canvasService.loadForWorkspace(id);
   }
 
   // ── H-03: package import with 3-way conflict resolution ────────────────

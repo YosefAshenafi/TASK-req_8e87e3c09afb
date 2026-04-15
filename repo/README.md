@@ -15,15 +15,20 @@ No Node.js, npm, ng, or Playwright installation on the host is needed or allowed
 ## Getting started
 
 ```bash
-# Clone and start the dev server (Angular hot-reload on :4200)
-git clone <repo-url>
-cd repo
-docker compose up
+# 1. One-time volume bootstrap (creates the named Docker volume for node_modules)
+docker volume create secureroom_node_modules
+docker compose --profile dev run --rm dev npm install
+
+# 2. Start the Angular dev server (hot-reload on :4200)
+make dev
+# or: docker compose --profile dev up dev
 ```
 
 Open `http://localhost:4200` in your browser.
 
-> **No default credentials required.** If no user profile exists yet, the app will walk you through creating one on first launch.
+> **No default credentials required.** The app will walk you through creating a profile on first launch.
+
+> **Production build:** `make prod` (or `docker compose up`) builds and serves the compiled bundle on `:8080`.
 
 ---
 
@@ -31,17 +36,19 @@ Open `http://localhost:4200` in your browser.
 
 | Task | Command |
 |---|---|
-| Start dev server | `make dev` or `docker compose up` |
-| Run unit tests | `make test` |
-| Run e2e tests | `npm run test:e2e` (Playwright) or `make e2e` |
+| Start dev server | `make dev` |
+| Run full test suite (canonical) | `./run_tests.sh` |
+| Run unit tests only | `make test` |
+| Run e2e tests only | `make e2e` |
 | Production build | `make build` |
 | Serve production build | `make prod` |
 | Lint + format check | `make lint` |
 | Open shell in dev container | `make shell` |
 | Destroy volumes (fresh install) | `make clean` |
 
-> **E2E tests:** The primary maintained suite lives in `repo/e2e_tests/` and is run via
-> `npm run test:e2e`. The legacy harness at `repo/e2e/` is deprecated.
+> **Canonical test path:** Use `./run_tests.sh` to run the full suite (Vitest unit + API + Playwright E2E) inside Docker.
+> `make test` runs the Vitest suites only. The legacy Karma/Jasmine runner is available as `make test-legacy` (deprecated).
+> The legacy harness at `repo/e2e/` is deprecated; the primary E2E suite is in `repo/e2e_tests/`.
 
 All `make` targets map directly to `docker compose run --rm <service> ...`.
 
@@ -75,10 +82,10 @@ It is **never** host-mounted. If you run `ls node_modules` on your Mac, it will 
 
 ---
 
-## IMPORTANT: host-side tooling is forbidden
+## IMPORTANT: Docker is the recommended development path
 
 > Running `npm install`, `ng serve`, `node`, or `playwright test` directly on the host machine
-> is explicitly **not supported** and will produce inconsistent results.
+> is not the recommended path and may produce inconsistent results.
 >
-> Always use the Docker services above.
+> Use the Docker services above for the supported workflow.
 

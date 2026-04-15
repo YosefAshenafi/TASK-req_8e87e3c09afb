@@ -17,6 +17,7 @@ import { Subscription } from 'rxjs';
 import { CommentService } from './comment.service';
 import { ToastService } from '../core/toast.service';
 import { AuthService } from '../auth/auth.service';
+import { DbService } from '../core/db.service';
 import { filterMentionSuggestions, stripUnknownMentions } from './mention-utils';
 import type { CommentThread, Reply } from '../core/types';
 
@@ -142,6 +143,7 @@ export class CommentDrawerComponent implements OnInit, OnDestroy, AfterViewCheck
     private readonly commentService: CommentService,
     private readonly toastService: ToastService,
     private readonly authService: AuthService,
+    private readonly db: DbService,
   ) {}
 
   ngOnInit(): void {
@@ -154,10 +156,8 @@ export class CommentDrawerComponent implements OnInit, OnDestroy, AfterViewCheck
       }
     });
 
-    // Load roster for @mention suggestions.
-    this.authService.listProfiles().then(profiles => {
-      this._roster.set(profiles.map(p => p.username));
-    }).catch(() => { /* non-critical */ });
+    // Load workspace-scoped roster for @mention suggestions.
+    this._loadRoster();
   }
 
   ngAfterViewChecked(): void {
@@ -169,6 +169,38 @@ export class CommentDrawerComponent implements OnInit, OnDestroy, AfterViewCheck
 
   ngOnDestroy(): void {
     this.subscription?.unsubscribe();
+  }
+
+  /** Load @mention roster scoped to the active workspace (falls back to all profiles). */
+  private _loadRoster(): void {
+    const wsId = this.workspaceId;
+    if (!wsId) {
+      this.authService.listProfiles()
+        .then(profiles => this._roster.set(profiles.map(p => p.username)))
+        .catch(() => { /* non-critical */ });
+      return;
+    }
+    (async () => {
+      try {
+        const idb = await this.db.open();
+        const events = await idb.getAllFromIndex('events', 'by_workspace', wsId);
+        const profileIds = new Set<string>();
+        for (const e of events) {
+          const payload = e.payload as Record<string, unknown> | undefined;
+          if (payload?.['profileId']) profileIds.add(payload['profileId'] as string);
+        }
+        const allProfiles = await this.authService.listProfiles();
+        // If nobody has logged a telemetry event yet, fall back to the full list.
+        const roster = profileIds.size > 0
+          ? allProfiles.filter(p => profileIds.has(p.id)).map(p => p.username)
+          : allProfiles.map(p => p.username);
+        this._roster.set(roster);
+      } catch {
+        // Fallback: load all profiles if the events store query fails.
+        const allProfiles = await this.authService.listProfiles().catch(() => []);
+        this._roster.set(allProfiles.map(p => p.username));
+      }
+    })();
   }
 
   protected onEnter(event: Event): void {

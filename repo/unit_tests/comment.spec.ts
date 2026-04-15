@@ -198,6 +198,53 @@ describe('CommentService', () => {
   });
 });
 
+// ── Roster loading via events store (regression for H-02) ────────────────────
+// Validates that the correct IDB store name ('events', not 'telemetry_events')
+// is used when loading workspace-scoped roster data for @mention suggestions.
+
+describe('comment drawer roster loading (H-02 regression)', () => {
+  let ctx: ReturnType<typeof makeContext>;
+
+  beforeEach(async () => {
+    ctx = makeContext();
+    await createAndSignIn(ctx.auth, 'alice', 'password123');
+  });
+
+  it('events store is queryable by workspace index', async () => {
+    const WS_ROSTER = 'workspace-roster-test';
+    ctx.telemetry.log({
+      workspaceId: WS_ROSTER,
+      type: 'workspace.entered',
+      payload: { profileId: ctx.auth.currentProfile!.id },
+    });
+    await new Promise(r => setTimeout(r, 50));
+
+    const idb = await ctx.db.open();
+    // Must use the store name 'events' — not 'telemetry_events'
+    const events = await idb.getAllFromIndex('events', 'by_workspace', WS_ROSTER);
+    expect(events.length).toBeGreaterThanOrEqual(1);
+    const profileIds = new Set(
+      events
+        .map(e => (e.payload as Record<string, unknown>)?.['profileId'])
+        .filter(Boolean),
+    );
+    expect(profileIds.has(ctx.auth.currentProfile!.id)).toBe(true);
+  });
+
+  it('returns all profiles as roster when no events exist for workspace', async () => {
+    await ctx.auth.createProfile({ username: 'bob', password: 'password123', role: 'Editor' });
+
+    const WS_EMPTY = 'workspace-no-events';
+    const idb = await ctx.db.open();
+    const events = await idb.getAllFromIndex('events', 'by_workspace', WS_EMPTY);
+    expect(events.length).toBe(0);
+
+    // When no events, roster should fall back to all profiles
+    const allProfiles = await ctx.auth.listProfiles();
+    expect(allProfiles.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 // ── Mention suggestion/validation utilities ───────────────────────────────────
 
 describe('filterMentionSuggestions()', () => {

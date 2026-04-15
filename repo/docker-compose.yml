@@ -20,7 +20,7 @@ x-workspace-mounts: &workspace-mounts
     - ./tsconfig.app.json:/workspace/tsconfig.app.json
     - ./tsconfig.spec.json:/workspace/tsconfig.spec.json
     - ./ngsw-config.json:/workspace/ngsw-config.json
-    - ./.eslintrc.json:/workspace/.eslintrc.json
+    - ./eslint.config.js:/workspace/eslint.config.js
     - ./.prettierrc:/workspace/.prettierrc
     - ./scripts:/workspace/scripts
 

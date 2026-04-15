@@ -209,7 +209,8 @@ async function doRollup(dateStr: string): Promise<void> {
     for (const e of dayEvents) {
       switch (e.type) {
         case 'note-created':        notesCreated++;         break;
-        case 'comment-added':       commentsAdded++;        break;
+        case 'comment-created':
+        case 'comment-reply':       commentsAdded++;        break;
         case 'chat-sent':           chatMessagesSent++;     break;
         case 'mutual-help-published': mutualHelpPublished++; break;
       }
