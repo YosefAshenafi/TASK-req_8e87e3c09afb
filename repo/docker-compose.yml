@@ -1,0 +1,126 @@
+# ─────────────────────────────────────────────────────────────
+# Shared environment (applied to every service that runs ng/node)
+# ─────────────────────────────────────────────────────────────
+x-ng-env: &ng-env
+  environment:
+    - NG_CLI_ANALYTICS=false
+    - NG_FORCE_TTY=false
+
+# ─────────────────────────────────────────────────────────────
+# Shared bind-mount configuration (reused across services)
+# ─────────────────────────────────────────────────────────────
+x-workspace-mounts: &workspace-mounts
+  volumes:
+    - node_modules:/workspace/node_modules
+    - ./src:/workspace/src
+    - ./angular.json:/workspace/angular.json
+    - ./package.json:/workspace/package.json
+    - ./package-lock.json:/workspace/package-lock.json
+    - ./tsconfig.json:/workspace/tsconfig.json
+    - ./tsconfig.app.json:/workspace/tsconfig.app.json
+    - ./tsconfig.spec.json:/workspace/tsconfig.spec.json
+    - ./ngsw-config.json:/workspace/ngsw-config.json
+    - ./.eslintrc.json:/workspace/.eslintrc.json
+    - ./.prettierrc:/workspace/.prettierrc
+    - ./scripts:/workspace/scripts
+
+services:
+  # ── Development server (default workflow) ──────────────────
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    entrypoint: ["/workspace/scripts/docker-entrypoint-dev.sh"]
+    command: ["ng", "serve", "--host", "0.0.0.0", "--poll", "1000"]
+    ports:
+      - "4200:4200"
+    environment:
+      - NG_CLI_ANALYTICS=false
+      - NG_FORCE_TTY=false
+      - NODE_ENV=development
+    <<: *workspace-mounts
+    stdin_open: true
+    tty: true
+
+  # ── Unit / component tests (Vitest) ───────────────────────
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    entrypoint: ["/workspace/scripts/docker-entrypoint-dev.sh"]
+    command: ["ng", "test", "--watch=false"]
+    environment:
+      - NG_CLI_ANALYTICS=false
+      - NG_FORCE_TTY=false
+      - NODE_ENV=test
+    <<: *workspace-mounts
+
+  # ── Playwright end-to-end tests ───────────────────────────
+  e2e:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    entrypoint: ["/workspace/scripts/docker-entrypoint-dev.sh"]
+    command: ["npx", "playwright", "test"]
+    depends_on:
+      - prod
+    environment:
+      - NG_CLI_ANALYTICS=false
+      - BASE_URL=http://prod:8080
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    volumes:
+      - node_modules:/workspace/node_modules
+      - ./src:/workspace/src
+      - ./e2e:/workspace/e2e
+      - ./playwright.config.ts:/workspace/playwright.config.ts
+      - ./package.json:/workspace/package.json
+      - ./package-lock.json:/workspace/package-lock.json
+      - ./scripts:/workspace/scripts
+
+  # ── Production build (outputs to ./dist on the host) ──────
+  build:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    entrypoint: ["/workspace/scripts/docker-entrypoint-dev.sh"]
+    command: ["ng", "build", "--configuration", "production"]
+    environment:
+      - NG_CLI_ANALYTICS=false
+      - NG_FORCE_TTY=false
+      - NODE_ENV=production
+    volumes:
+      - node_modules:/workspace/node_modules
+      - ./src:/workspace/src
+      - ./angular.json:/workspace/angular.json
+      - ./package.json:/workspace/package.json
+      - ./package-lock.json:/workspace/package-lock.json
+      - ./tsconfig.json:/workspace/tsconfig.json
+      - ./tsconfig.app.json:/workspace/tsconfig.app.json
+      - ./ngsw-config.json:/workspace/ngsw-config.json
+      - ./dist:/workspace/dist
+      - ./scripts:/workspace/scripts
+
+  # ── Production nginx (smoke-test + e2e target) ─────────────
+  prod:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    ports:
+      - "8080:8080"
+
+  # ── Lint only ─────────────────────────────────────────────
+  lint:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    entrypoint: ["/workspace/scripts/docker-entrypoint-dev.sh"]
+    command: ["sh", "-c", "ng lint && npx prettier --check 'src/**/*.{ts,html,scss}'"]
+    environment:
+      - NG_CLI_ANALYTICS=false
+      - NG_FORCE_TTY=false
+    <<: *workspace-mounts
+
+volumes:
+  node_modules:
+    name: secureroom_node_modules
+    external: true

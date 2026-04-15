@@ -1,0 +1,15 @@
+FROM node:20-alpine
+
+# Install git and bash (needed by husky and some npm scripts)
+RUN apk add --no-cache git bash
+
+# Create a non-root user
+RUN addgroup -S app && adduser -S app -G app
+
+WORKDIR /workspace
+
+# Expose Angular dev server and Karma test runner ports
+EXPOSE 4200 9876
+
+# Default command: serve the Angular app
+CMD ["ng", "serve", "--host", "0.0.0.0", "--poll", "1000"]

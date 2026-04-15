@@ -1,0 +1,8 @@
+FROM mcr.microsoft.com/playwright:v1.47.0-jammy
+
+WORKDIR /workspace
+
+# Playwright browsers are pre-installed in this base image.
+# Dependencies are installed at container startup via the entrypoint.
+
+CMD ["npx", "playwright", "test"]

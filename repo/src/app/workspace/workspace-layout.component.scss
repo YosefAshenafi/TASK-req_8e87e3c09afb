@@ -1,0 +1,146 @@
+:host {
+  display: block;
+  height: 100vh;
+}
+
+.workspace-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #fafafa;
+}
+
+// ── Header ──────────────────────────────────────────────────────────────────
+.ws-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 16px;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  flex-shrink: 0;
+}
+
+.ws-back {
+  font-size: 1.2rem;
+  color: #555;
+  text-decoration: none;
+  &:hover { color: #1e88e5; }
+}
+
+.ws-title {
+  font-weight: 600;
+  font-size: 1.05rem;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.avatar-bar {
+  display: flex;
+  gap: 4px;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: default;
+  flex-shrink: 0;
+}
+
+.inbox-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  &:hover { background: #f0f0f0; }
+}
+
+// ── Body ─────────────────────────────────────────────────────────────────────
+.ws-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.ws-toolbar {
+  width: 56px;
+  background: #fff;
+  border-right: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  flex-shrink: 0;
+}
+
+.tool-placeholder {
+  writing-mode: vertical-rl;
+  color: #aaa;
+  font-size: 0.75rem;
+  margin-top: 24px;
+}
+
+.ws-canvas-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #f0f0f0;
+}
+
+.canvas-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #aaa;
+}
+
+.ws-id { font-size: 0.75rem; }
+
+.ws-chat-panel {
+  width: 280px;
+  background: #fff;
+  border-left: 1px solid #e0e0e0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-placeholder { color: #aaa; font-size: 0.85rem; }
+
+// ── Footer ────────────────────────────────────────────────────────────────────
+.ws-footer {
+  height: 28px;
+  background: #1a1a2e;
+  color: #fff;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+
+.offline-badge { color: #a5d6a7; }
+
+.tab-badge {
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-family: monospace;
+}

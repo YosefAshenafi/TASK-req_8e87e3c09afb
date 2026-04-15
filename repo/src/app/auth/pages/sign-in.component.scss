@@ -1,0 +1,35 @@
+.sign-in-page {
+  max-width: 400px;
+  margin: 60px auto;
+  padding: 0 16px;
+}
+
+.back-link { font-size: 0.9rem; color: #1e88e5; text-decoration: none; }
+
+form { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+form.hidden { display: none; }
+
+label { display: flex; flex-direction: column; gap: 4px; font-weight: 500; }
+input { padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 1rem; }
+
+.error { color: #c00; font-size: 0.9rem; }
+
+.lockout-banner {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  padding: 16px;
+  margin: 16px 0;
+  line-height: 1.6;
+}
+
+.btn-primary {
+  padding: 10px;
+  background: #1e88e5;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+  &:disabled { opacity: 0.6; cursor: not-allowed; }
+}
