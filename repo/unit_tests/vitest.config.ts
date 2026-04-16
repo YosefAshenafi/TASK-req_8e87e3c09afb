@@ -27,6 +27,13 @@ export default defineConfig({
         'src/app/auth/crypto.ts',
         'src/app/core/error.ts',
         'src/app/core/store-base.ts',
+        // Component files that have dedicated unit test coverage
+        'src/app/auth/pages/profiles-list.component.ts',
+        'src/app/auth/pages/sign-in.component.ts',
+        'src/app/auth/pages/create-profile.component.ts',
+        'src/app/auth/pages/persona-select.component.ts',
+        'src/app/workspace/workspaces-list.component.ts',
+        'src/app/reporting/report.page.ts',
       ],
       exclude: [
         'src/app/**/*.spec.ts',
