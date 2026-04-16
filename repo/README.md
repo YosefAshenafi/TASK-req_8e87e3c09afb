@@ -7,7 +7,7 @@ An offline-first, multi-tab collaborative brainstorm canvas.
 
 ## Prerequisites
 
-**Docker (and Docker Compose) only.**  
+**Docker (and Docker Compose) is the recommended approach.**  
 No Node.js, npm, ng, or Playwright installation on the host is needed or allowed.
 
 ---

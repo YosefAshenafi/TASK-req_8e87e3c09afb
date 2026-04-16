@@ -41,6 +41,7 @@ test.describe('Reporting page — authenticated', () => {
     await createProfile(page, USER, PASS, 'Admin');
     await signInFull(page, USER, PASS, 'Admin');
     await page.goto('/reporting');
+    await page.waitForURL(/\/reporting/);
     await page.waitForLoadState('networkidle');
   });
 

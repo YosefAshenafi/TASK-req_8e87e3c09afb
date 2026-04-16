@@ -120,15 +120,15 @@ test.describe('Canvas workspace', () => {
   });
 
   test('sticky note tool button is present in toolbar', async ({ page }) => {
-    await expect(page.locator('[title="Sticky Note (N)"]')).toBeVisible();
+    await expect(page.getByTestId('canvas-tool-sticky-note')).toBeVisible();
   });
 
   test('select tool button is present in toolbar', async ({ page }) => {
-    await expect(page.locator('[title="Select (V)"]')).toBeVisible();
+    await expect(page.getByTestId('canvas-tool-select')).toBeVisible();
   });
 
   test('clicking sticky note tool activates it', async ({ page }) => {
-    const stickyBtn = page.locator('[title="Sticky Note (N)"]');
+    const stickyBtn = page.getByTestId('canvas-tool-sticky-note');
     await stickyBtn.click();
     await expect(stickyBtn).toHaveAttribute('aria-pressed', 'true');
   });
@@ -137,7 +137,7 @@ test.describe('Canvas workspace', () => {
 
   test('placing a sticky note on canvas creates a note element', async ({ page }) => {
     // Activate sticky-note tool
-    await page.locator('[title="Sticky Note (N)"]').click();
+    await page.getByTestId('canvas-tool-sticky-note').click();
 
     // Click centre of canvas viewport to place a note
     const viewport = page.locator('.canvas-viewport');
@@ -148,7 +148,7 @@ test.describe('Canvas workspace', () => {
   });
 
   test('placed sticky note has an editable text area', async ({ page }) => {
-    await page.locator('[title="Sticky Note (N)"]').click();
+    await page.getByTestId('canvas-tool-sticky-note').click();
     const viewport = page.locator('.canvas-viewport');
     await viewport.click({ position: { x: 200, y: 200 } });
 

@@ -33,7 +33,16 @@ export async function createProfile(
   password: string,
   role: 'Admin' | 'Academic Affairs' | 'Teacher' = 'Admin',
 ): Promise<void> {
-  await page.goto('/profiles/new');
+  // Navigate from /profiles via router link instead of a direct deep-link.
+  // In some docker/nginx setups, direct `page.goto('/profiles/new')` can race
+  // initial app boot and cause flaky form detection in CI.
+  await page.goto('/profiles');
+  const createLink = page.getByRole('link', { name: /create new profile/i });
+  if (await createLink.isVisible()) {
+    await createLink.click();
+  } else {
+    await page.goto('/profiles/new');
+  }
   await page.waitForSelector('[data-testid="username-input"], input[name="username"], input[type="text"]');
 
   // Fill username

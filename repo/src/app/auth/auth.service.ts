@@ -1,5 +1,6 @@
-import { Injectable, Optional } from '@angular/core';
+import { Injectable, Injector, Optional, Inject } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
+import { filter, take } from 'rxjs/operators';
 import { v4 as uuidv4 } from 'uuid';
 import { DbService } from '../core/db.service';
 import { PrefsService } from '../core/prefs.service';
@@ -21,17 +22,31 @@ export type SignInResult =
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly _current$ = new BehaviorSubject<Profile | null>(null);
+  /** Emits true once enforceAutoSignOut has resolved (regardless of outcome). */
+  private readonly _ready$ = new BehaviorSubject<boolean>(false);
+  private _chat: ChatService | null | undefined;
+  private readonly _injector: Injector | null;
 
   constructor(
     private readonly db: DbService,
     private readonly prefs: PrefsService,
-    // ChatService is @Optional to avoid a circular DI cycle (ChatService → AuthService).
-    // Angular injects null when the cycle is detected; signIn/signOut guard with ?.
-    @Optional() private readonly chat: ChatService | null = null,
-  ) {}
+    // Resolve ChatService lazily so AuthService does not participate in a DI cycle
+    // at bootstrap (AuthService → ChatService → AuthService).
+    @Optional() @Inject(Injector) injector: Injector | null = null,
+  ) {
+    this._injector = injector;
+  }
 
   get currentProfile$(): Observable<Profile | null> {
     return this._current$.asObservable();
+  }
+
+  /** Emits (and completes) once enforceAutoSignOut has finished — guards wait on this. */
+  get ready$(): Observable<true> {
+    return this._ready$.pipe(
+      filter((v): v is true => v),
+      take(1),
+    );
   }
 
   get currentProfile(): Profile | null {
@@ -131,8 +146,9 @@ export class AuthService {
     await idb.put('profiles', updated);
     this._current$.next(updated);
     this.prefs.set('activeProfileId', updated.id);
-    this.prefs.set('personaRole', updated.role as PersonaRole);
-    await this.chat?.postSystem(`${updated.username} signed in.`);
+    // Persona caps come from PersonaService (prefs.personaRole) after /persona selection — not profile.role.
+    this.prefs.set('personaRole', undefined);
+    await this._getChat()?.postSystem(`${updated.username} signed in.`);
     return { ok: true, profile: updated };
   }
 
@@ -140,25 +156,49 @@ export class AuthService {
     const username = this._current$.value?.username;
     this._current$.next(null);
     this.prefs.set('activeProfileId', undefined);
-    if (username) await this.chat?.postSystem(`${username} signed out.`);
+    this.prefs.set('personaRole', undefined);
+    if (username) await this._getChat()?.postSystem(`${username} signed out.`);
   }
 
   /** Call on app boot. Signs out any profile whose lastSignInAt is older than 7 days. */
   async enforceAutoSignOut(): Promise<void> {
-    const activeId = this.prefs.get('activeProfileId');
-    if (!activeId) return;
+    try {
+      const activeId = this.prefs.get('activeProfileId');
+      if (!activeId) return;
 
-    const idb = await this.db.open();
-    const profile = await idb.get('profiles', activeId);
-    if (!profile) {
-      await this.signOut();
-      return;
-    }
+      const idb = await this.db.open();
+      const profile = await idb.get('profiles', activeId);
+      if (!profile) {
+        await this.signOut();
+        return;
+      }
 
-    if (profile.lastSignInAt !== null && Date.now() - profile.lastSignInAt > SEVEN_DAYS_MS) {
-      await this.signOut();
-    } else {
-      this._current$.next(profile);
+      if (profile.lastSignInAt !== null && Date.now() - profile.lastSignInAt > SEVEN_DAYS_MS) {
+        await this.signOut();
+      } else {
+        this._current$.next(profile);
+      }
+    } finally {
+      this._ready$.next(true);
     }
+  }
+
+  private _getChat(): ChatService | null {
+    if (this._chat !== undefined) return this._chat;
+    if (!this._injector) {
+      this._chat = null;
+      return this._chat;
+    }
+    try {
+      this._chat = this._injector.get(ChatService, null);
+    } catch {
+      this._chat = null;
+    }
+    return this._chat;
+  }
+
+  /** Unit-test hook: provide a chat instance without Angular DI. */
+  setChatForTesting(chat: ChatService | null): void {
+    this._chat = chat;
   }
 }

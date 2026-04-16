@@ -74,7 +74,7 @@ export class ChatService {
       [this._workspaceId, Number.MAX_SAFE_INTEGER],
     );
     const all = (await idb.getAllFromIndex('chat', 'by_workspace_createdAt', range)) as ChatMessage[];
-    return all.filter(m => m.body.toLowerCase().includes(lower));
+    return all.filter(m => (m.body ?? '').toLowerCase().includes(lower));
   }
 
   private async _writeMessage(partial: Pick<ChatMessage, 'type' | 'body'>): Promise<ChatMessage> {
@@ -119,7 +119,7 @@ export class ChatService {
   }
 
   private _indexMessage(msg: ChatMessage): void {
-    const words = msg.body.toLowerCase().match(/\w+/g) ?? [];
+    const words = (msg.body ?? '').toLowerCase().match(/\w+/g) ?? [];
     for (const word of words) {
       const existing = this._index.get(word);
       this._index.set(word, existing ? `${existing},${msg.id}` : msg.id);

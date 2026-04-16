@@ -4,6 +4,7 @@
  * Each test gets a fresh in-memory IndexedDB via the global beforeEach.
  */
 import 'fake-indexeddb/auto';
+import '@angular/compiler';
 import { IDBFactory } from 'fake-indexeddb';
 import { webcrypto } from 'node:crypto';
 import { Buffer } from 'node:buffer';

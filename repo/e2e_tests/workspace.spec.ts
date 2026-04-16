@@ -12,8 +12,9 @@ test.describe('Workspace management', () => {
   test.beforeEach(async ({ page }) => {
     await gotoApp(page);
     await clearBrowserStorage(page);
-    await createProfile(page, USER, PASS, 'Teacher');
-    await signInFull(page, USER, PASS, 'Teacher');
+    // Use Admin so delete-flow tests can see persona-gated delete controls.
+    await createProfile(page, USER, PASS, 'Admin');
+    await signInFull(page, USER, PASS, 'Admin');
     // Now on /workspaces
   });
 

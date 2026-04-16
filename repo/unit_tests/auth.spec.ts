@@ -290,7 +290,8 @@ describe('AuthService', () => {
   describe('system messages', () => {
     it('posts "{username} signed in." to chat on successful sign-in', async () => {
       const ctx = makeContext();
-      const authWithChat = new AuthService(ctx.db, ctx.prefs, ctx.chat);
+      const authWithChat = new AuthService(ctx.db, ctx.prefs);
+      authWithChat.setChatForTesting(ctx.chat);
       await authWithChat.createProfile({ username: 'alice', password: 'password123', role: 'Admin' });
       const spy = vi.spyOn(ctx.chat, 'postSystem');
       await authWithChat.signIn('alice', 'password123');
@@ -299,7 +300,8 @@ describe('AuthService', () => {
 
     it('posts "{username} signed out." to chat on sign-out', async () => {
       const ctx = makeContext();
-      const authWithChat = new AuthService(ctx.db, ctx.prefs, ctx.chat);
+      const authWithChat = new AuthService(ctx.db, ctx.prefs);
+      authWithChat.setChatForTesting(ctx.chat);
       await authWithChat.createProfile({ username: 'alice', password: 'password123', role: 'Admin' });
       await authWithChat.signIn('alice', 'password123');
       const spy = vi.spyOn(ctx.chat, 'postSystem');

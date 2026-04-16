@@ -128,6 +128,7 @@ const ZOOM_MAX = 4.0;
       @for (tool of toolList; track tool.id) {
         <button
           class="tool-btn"
+          [attr.data-testid]="'canvas-tool-' + tool.id"
           [class.active]="activeTool() === tool.id"
           [attr.aria-pressed]="activeTool() === tool.id"
           [title]="tool.label"
@@ -353,7 +354,7 @@ export class CanvasComponent implements OnInit, AfterViewInit, OnDestroy {
     private readonly presence: PresenceService,
   ) {
     const defs: Array<{ id: Tool; label: string }> = [
-      { id: 'select',      label: 'Select (S)'      },
+      { id: 'select',      label: 'Select (V)'      },
       { id: 'rectangle',   label: 'Rectangle (R)'   },
       { id: 'circle',      label: 'Circle (C)'      },
       { id: 'arrow',       label: 'Arrow (A)'       },
@@ -438,7 +439,7 @@ export class CanvasComponent implements OnInit, AfterViewInit, OnDestroy {
     if (inInput || this.editingId()) return;
 
     switch (e.key.toLowerCase()) {
-      case 's': this.setTool('select');      break;
+      case 'v': this.setTool('select');      break;
       case 'r': this.setTool('rectangle');   break;
       case 'c': this.setTool('circle');      break;
       case 'a': this.setTool('arrow');       break;
@@ -625,13 +626,15 @@ export class CanvasComponent implements OnInit, AfterViewInit, OnDestroy {
 
     // ── Sticky note ──
     if (tool === 'sticky-note') {
-      await this.canvasService.addObject({
+      const newNote = await this.canvasService.addObject({
         workspaceId: this.workspaceId,
         type: 'sticky-note', x, y,
         width: 160, height: 120,
         text: '', color: '#fff9c4', strokeColor: '#f9a825',
         zIndex: this._allObjects().length, createdAt: Date.now(),
       });
+      // Auto-enter edit mode immediately so the textarea is ready for typing
+      this.startEditing(newNote);
       return;
     }
 

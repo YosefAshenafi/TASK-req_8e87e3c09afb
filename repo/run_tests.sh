@@ -133,8 +133,10 @@ fi
 
 # ── Step 2 — Ensure prod is running and healthy (needed by E2E) ──────────────
 separator
-info "Starting prod service…"
-docker compose up -d prod
+info "Starting prod service (rebuild app image)…"
+# Always rebuild prod before E2E so browser tests run against current src/,
+# not a previously cached nginx image.
+docker compose up -d --build prod
 
 info "Waiting for prod to become healthy…"
 HEALTH_WAIT=0

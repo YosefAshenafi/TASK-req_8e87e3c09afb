@@ -4,6 +4,7 @@
  * actual PBKDF2 hashing. No mocking of service methods.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
+import { firstValueFrom } from 'rxjs';
 import { makeFullContext, signUp } from './helpers';
 import { MAX_FAILED_ATTEMPTS, SEVEN_DAYS_MS } from '../src/app/auth/profile.model';
 import type { FullContext } from './helpers';
@@ -198,5 +199,37 @@ describe('Auth API — full lifecycle', () => {
     const stored = await idb.getFromIndex('profiles', 'by_username', 'alice');
     expect(stored?.passwordHash).not.toBe('securepass1');
     expect(stored?.salt).toBeTruthy();
+  });
+
+  it('ready$ emits true after enforceAutoSignOut completes', async () => {
+    const ready = firstValueFrom(ctx.auth.ready$);
+    await ctx.auth.enforceAutoSignOut();
+    await expect(ready).resolves.toBe(true);
+  });
+
+  it('currentProfile$ emits signed-in profile', async () => {
+    await ctx.auth.createProfile({ username: 'stream-user', password: 'securepass1', role: 'Admin' });
+    await ctx.auth.signIn('stream-user', 'securepass1');
+    const profile = await firstValueFrom(ctx.auth.currentProfile$);
+    expect(profile?.username).toBe('stream-user');
+  });
+
+  it('setChatForTesting wires system messages without Angular DI', async () => {
+    const calls: string[] = [];
+    const fakeChat = {
+      postSystem: async (body: string) => {
+        calls.push(body);
+        return {
+          id: 'm1',
+          workspaceId: '',
+          type: 'system' as const,
+          body,
+          createdAt: Date.now(),
+        };
+      },
+    };
+    ctx.auth.setChatForTesting(fakeChat as never);
+    await signUp(ctx.auth, 'chat-hook-user');
+    expect(calls).toContain('chat-hook-user signed in.');
   });
 });
