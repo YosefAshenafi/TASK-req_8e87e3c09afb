@@ -15,17 +15,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Lint
-        run: docker compose run --rm lint
+        run: docker compose --profile lint run --rm lint
 
-  test:
+  unit-test:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Build test image
-        run: docker compose build test
-      - name: Run tests
-        run: docker compose run --rm test
+        run: docker compose --profile test build unit-test
+      - name: Run unit tests
+        run: docker compose --profile test run --rm unit-test
+
+  api-test:
+    name: API / integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build test image
+        run: docker compose --profile test build api-test
+      - name: Run API tests
+        run: docker compose --profile test run --rm api-test
 
   e2e:
     name: Playwright e2e
@@ -33,9 +43,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build images
-        run: docker compose build e2e prod
+        run: |
+          docker compose build prod
+          docker compose --profile test build e2e-test
+      - name: Start prod and wait for health
+        run: |
+          docker compose up -d prod
+          timeout 90 bash -c '
+            until [ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" $(docker compose ps -q prod))" = "healthy" ]; do
+              sleep 2
+            done
+          '
       - name: Run e2e tests
-        run: docker compose run --rm e2e
+        run: docker compose --profile test run --rm --no-deps e2e-test
+      - name: Stop prod
+        if: always()
+        run: docker compose stop prod
 
   build:
     name: Production build
@@ -43,7 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build production bundle
-        run: docker compose run --rm build
+        run: docker compose --profile build run --rm build
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
