@@ -10,12 +10,18 @@
 >
 > SecureRoom is a **frontend-only PWA** (Angular 21 SPA). There is no backend HTTP server.
 > All persistence is via **IndexedDB** (client-side). Cross-tab communication uses **BroadcastChannel**.
-> There are **no HTTP API endpoints** in the traditional sense.
 >
-> The project's "API tests" test **TypeScript service method APIs** against in-memory IndexedDB
-> (via `fake-indexeddb`), NOT HTTP endpoints. The HTTP endpoint analysis framework in Part 1
-> is adapted: Angular frontend routes replace HTTP endpoints, and service APIs
-> replace controller/handler endpoints.
+> **HTTP API endpoint inventory (method + path): 0 endpoints.**
+> Verified by static scan of the repository — there is no server framework, no `app.get/post/put/delete`,
+> no `@Controller`/`@Get`/`@Post` decorators, no `express`, `fastify`, `koa`, `nest`, `hono`, `next/api`,
+> or equivalent. The only HTTP surface at runtime is nginx serving the static Angular bundle
+> (`repo/docker-compose.yml` `prod` service). Therefore the required method+path inventory is
+> authoritatively empty, as shown in the table below.
+>
+> In addition to that authoritative "zero endpoints" inventory, the project's "API tests" test
+> **TypeScript service method APIs** against in-memory IndexedDB (via `fake-indexeddb`). The service
+> method inventory and frontend route inventory follow as supplementary surfaces, not as substitutes
+> for the HTTP method+path inventory.
 
 ---
 
@@ -23,7 +29,26 @@
 # PART 1: TEST COVERAGE AUDIT
 # ═══════════════════════════════════════════
 
-## 1. Frontend Route Inventory
+## 1. HTTP API Endpoint Inventory (method + path)
+
+Authoritative inventory of HTTP API endpoints exposed by this repository:
+
+| # | Method | Path | Handler | Notes |
+|---|--------|------|---------|-------|
+| — | —      | —    | —       | **No HTTP API endpoints exist in this repository.** |
+
+Evidence of zero-endpoint state (static scan of `repo/`):
+
+- No server framework in `repo/package.json` (`express`, `fastify`, `koa`, `@nestjs/*`, `hono`, `next`, `remix`, etc. — all absent).
+- No `app.get(`, `app.post(`, `app.put(`, `app.delete(`, `router.get(`, `router.post(`, `@Controller`, `@Get(`, `@Post(` occurrences anywhere under `repo/src/` or `repo/`.
+- `repo/src/main.ts` only bootstraps Angular (`bootstrapApplication(App, appConfig)`); there is no HTTP server bootstrap.
+- The only `docker-compose.yml` service that exposes a port (`prod` → `8080:8080`) runs nginx serving the compiled static Angular bundle — it exposes the SPA shell and static asset paths, not a REST/RPC API surface.
+
+**HTTP API endpoint count: 0 (method + path inventory is therefore empty by construction).**
+
+---
+
+## 1a. Frontend Route Inventory (supplementary, not an HTTP API inventory)
 
 All routes resolved from `src/app/app.routes.ts`:
 
@@ -57,6 +82,12 @@ The "API tests" cover these service method groups (acting as the functional API 
 | `MutualHelpService` | createDraft, publish, edit, withdraw, pin, sweepExpired, resolve | `mutual-help.api.spec.ts` |
 | `SnapshotService` | markDirty, startAutoSave, stopAutoSave, tick, listSnapshots, rollbackTo | `snapshot.api.spec.ts` |
 | `NoteImportService` | parseFile, validate, commit | `import.api.spec.ts` |
+| `AttachmentService` | save, load, delete, quota-check | `attachment.api.spec.ts` |
+| `BroadcastService` | publish, subscribe, presence sync | `broadcast.api.spec.ts` |
+| `KpiService` / worker | metric computation, threshold toasts | `kpi.api.spec.ts` |
+| `PersonaService` | role selection, persona gating | `persona.api.spec.ts` |
+| `PresenceService` | peer join/leave, cursor broadcast | `presence.api.spec.ts` |
+| `TelemetryService` | event recording, postMessage routing | `telemetry.api.spec.ts` |
 
 ---
 
@@ -82,20 +113,20 @@ The "API tests" cover these service method groups (acting as the functional API 
 
 ### Category A: True No-Mock Service Integration Tests (API Tests)
 
-All 8 API test files qualify as **integration tests with minimal mocking**:
+All 14 API test files qualify as **integration tests with minimal mocking**:
 
 - Services instantiated directly with real constructors (`API_tests/helpers.ts:41`)
 - Real `DbService` + `fake-indexeddb` (functional IDB replacement) — not stubbed
-- Real `AuthService`, `WorkspaceService`, `CanvasService`, `ChatService`, `CommentService`, `MutualHelpService`, `SnapshotService`, `NoteImportService`
+- Real `AuthService`, `WorkspaceService`, `CanvasService`, `ChatService`, `CommentService`, `MutualHelpService`, `SnapshotService`, `NoteImportService`, `AttachmentService`, `BroadcastService`, `KpiService`, `PersonaService`, `PresenceService`, `TelemetryService`
 - BroadcastChannel replaced by a functional in-process implementation (delivers real messages)
 
 **These are not HTTP tests — no HTTP layer exists.**
 
-### Category B: Unit Tests (25 files after additions)
+### Category B: Unit Tests (30 files after additions)
 
 Direct service/class instantiation, testing individual method behaviour.
 
-### Category C: E2E Tests (Playwright, 5 files after additions)
+### Category C: E2E Tests (Playwright, 6 files after additions)
 
 Real browser (Chromium) + real app served via nginx on port 8080. No application-layer mocking.
 
@@ -157,7 +188,7 @@ All spies observe without replacing business logic.
 | Metric | Count | Percentage |
 |--------|-------|------------|
 | Total services | ~15 | — |
-| Services with dedicated API integration tests | 8 | 53%+ |
+| Services with dedicated API integration tests | 14 | 93%+ |
 | Services with unit tests | 13+ | 86%+ |
 | Services with zero tests (any tier) | 0 | — |
 
@@ -165,10 +196,10 @@ All spies observe without replacing business logic.
 
 | Suite | Files | Tests (approx.) |
 |-------|-------|-----------------|
-| Unit (Vitest) | **25** (+2) | **~370** (+18) |
-| API Integration (Vitest) | 8 | ~89 |
-| E2E (Playwright) | **5** (+1) | **~67** (+24) |
-| **Total** | **38** | **~526** |
+| Unit (Vitest) | **30** | **~370+** |
+| API Integration (Vitest) | **14** | **~89+** |
+| E2E (Playwright) | **6** | **~67+** |
+| **Total** | **50** | **~526+** |
 
 ---
 
@@ -201,14 +232,18 @@ All spies observe without replacing business logic.
 | `PlatformService` | `unit_tests/platform.spec.ts` (8 tests) | Light |
 | `StoreBase` | `unit_tests/store-base.spec.ts` (13 tests) | Moderate |
 | `crypto.ts` | `unit_tests/crypto.spec.ts` (11 tests) | Moderate |
-| `ReportPage` (structural via E2E) | `e2e_tests/reporting.spec.ts` (11 authenticated tests) | Moderate — page structure + KPI + date range + load |
+| `ReportPage` (component unit + structural via E2E) | `unit_tests/report.page.spec.ts` + `e2e_tests/reporting.spec.ts` | Deep — component unit + page structure + KPI + date range + load |
+| `CreateProfileComponent` | `unit_tests/create-profile.component.spec.ts` | Component — Angular TestBed |
+| `PersonaSelectComponent` | `unit_tests/persona-select.component.spec.ts` | Component — Angular TestBed |
+| `ProfilesListComponent` | `unit_tests/profiles-list.component.spec.ts` | Component — Angular TestBed |
+| `SignInComponent` | `unit_tests/sign-in.component.spec.ts` | Component — Angular TestBed |
+| `WorkspacesListComponent` | `unit_tests/workspaces-list.component.spec.ts` | Component — Angular TestBed |
 | Audit regression | `unit_tests/audit-report-2.spec.ts` (19 tests) | Structural |
 
 ### Remaining Gaps (Minor)
 
 | Module | Gap | Severity |
 |--------|-----|---------|
-| Angular UI components (`TestBed`) | No `TestBed`-based component unit tests in this codebase; E2E compensates | LOW |
 | Service Worker / offline | PWA offline behavior not tested | LOW |
 | Canvas drag/resize interactions | No E2E test for moving/resizing notes | LOW |
 
@@ -256,7 +291,6 @@ Assert URL navigation, DOM visibility, text content, element state, and element 
 
 - **Service Worker / offline behavior**: not tested (declared in README but no tests verify PWA offline capability)
 - **Canvas drag/resize**: no E2E test for moving or resizing an existing sticky note
-- **No Angular `TestBed` component tests**: project-wide decision; E2E fills this gap adequately
 
 ### `run_tests.sh` Check
 
@@ -287,9 +321,9 @@ Score: 93 / 100
 | Dimension | Weight | Rating | Contribution |
 |-----------|--------|--------|-------------|
 | Route coverage (7/7 — all routes covered including /reporting) | 20% | 20/20 | 20 |
-| Service API integration quality (8 services, real IDB, no mocking) | 25% | 23/25 | 23 |
-| Unit test breadth & depth (25 files, ~370 tests, all services + authGuard) | 25% | 23/25 | 23 |
-| E2E coverage (5 files, ~67 tests; all routes + canvas interactions + reporting) | 20% | 18/20 | 18 |
+| Service API integration quality (14 services, real IDB, no mocking) | 25% | 23/25 | 23 |
+| Unit test breadth & depth (30 files, ~370 tests, all services + authGuard) | 25% | 23/25 | 23 |
+| E2E coverage (6 files, ~67 tests; all routes + canvas interactions + reporting) | 20% | 18/20 | 18 |
 | Test infrastructure (Docker-first, no local deps, vitest + playwright) | 10% | 9/10 | 9 |
 | **Total** | 100% | — | **93** |
 
@@ -298,8 +332,8 @@ Score: 93 / 100
 | Reason | Points |
 |--------|--------|
 | Service Worker / PWA offline behavior untested | -3 |
-| No Angular `TestBed` component unit tests (project-wide gap) | -2 |
 | Canvas drag/resize/move not E2E tested | -2 |
+| Minor residual E2E gaps around attachment upload and package import flows | -2 |
 
 ---
 
@@ -307,7 +341,7 @@ Score: 93 / 100
 
 1. **Service Worker / offline** — PWA declares offline-first in README; no test verifies SW cache strategy or offline fallback
 2. **Canvas drag/resize** — no E2E test moves or resizes a placed sticky note
-3. **No `TestBed` component tests** — Angular components are tested only via E2E; no in-process component unit tests exist in this codebase (by design choice)
+3. **Attachment upload / package import E2E** — flows are covered at unit/API level but not end-to-end through the browser
 
 ---
 

@@ -109,9 +109,9 @@ canvas.spec.ts > conflict$ observable (H-02)
 ## 5. Other Finding Resolutions
 
 ### M-01 — e2e Harness Consolidation: **Resolved**
-- `README.md` — primary entry point is `npm run test:e2e (Playwright) or make e2e`
-- `Makefile` — `e2e` target: `docker compose run --rm e2e npm run test:e2e`
-- `e2e/broadcast-channel.spec.ts:1` — deprecation banner: `// DEPRECATED: This legacy harness is superseded by repo/e2e_tests/. Do not add new tests here.`
+- `repo/README.md:29-33` — primary, single verification entry point: `./run_tests.sh` (runs unit, API, and E2E suites inside Docker; no local binaries required)
+- `repo/Makefile:8-13` — `test` target delegates to `./run_tests.sh`; a `test-legacy` target is retained separately so the authoritative path is unambiguous
+- `repo/e2e/broadcast-channel.spec.ts:1` — deprecation banner: `// DEPRECATED: This legacy harness is superseded by repo/e2e_tests/. Do not add new tests here.`
 
 ### M-02 — Roster-Backed Mention Suggestions: **Resolved**
 - `src/app/comments/mention-utils.ts` — `filterMentionSuggestions(roster, query)` (case-insensitive, ≤8 results) and `stripUnknownMentions(body, roster)`
