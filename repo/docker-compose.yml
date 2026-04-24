@@ -187,6 +187,23 @@ services:
       - ./package-lock.json:/workspace/package-lock.json
       - ./coverage:/workspace/coverage
 
+  # ── Backend HTTP API tests (real node:http server) ───────────────────────
+  backend-http-test:
+    profiles: [test]
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    command: ["npm", "run", "test:backend:http"]
+    environment:
+      - NODE_ENV=test
+    volumes:
+      - ./backend:/workspace/backend
+      - ./backend_tests:/workspace/backend_tests
+      - ./package.json:/workspace/package.json
+      - ./package-lock.json:/workspace/package-lock.json
+      - ./tsconfig.json:/workspace/tsconfig.json
+      - ./coverage:/workspace/coverage
+
   # ── Playwright E2E tests (requires prod to be healthy) ────────────────────
   # Shares prod's network namespace so the app is reachable at http://localhost:8080.
   # This matters because Chromium only treats localhost (and HTTPS) as a

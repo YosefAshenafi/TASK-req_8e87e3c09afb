@@ -33,7 +33,17 @@ export default defineConfig({
         'src/app/auth/pages/create-profile.component.ts',
         'src/app/auth/pages/persona-select.component.ts',
         'src/app/workspace/workspaces-list.component.ts',
+        'src/app/inbox/inbox-panel.component.ts',
+        'src/app/import-export/package-import-conflict-dialog.component.ts',
         'src/app/reporting/report.page.ts',
+        // F-coverage: dedicated deep specs per component.
+        'src/app/chat/chat-panel.component.ts',
+        'src/app/comments/comment-drawer.component.ts',
+        'src/app/mutual-help/mutual-help-board.component.ts',
+        'src/app/mutual-help/mutual-help-form.component.ts',
+        'src/app/presence/activity-feed.component.ts',
+        'src/app/snapshot/snapshot-panel.component.ts',
+        'src/app/import-export/note-import-wizard.component.ts',
       ],
       exclude: [
         'src/app/**/*.spec.ts',

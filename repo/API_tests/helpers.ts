@@ -1,6 +1,18 @@
 /**
  * API test helpers — wire up all services in a realistic configuration
  * for full end-to-end flow tests (no mocking).
+ *
+ * SCOPE NOTE:
+ *   The suites under `API_tests/*` are **service-layer integration tests**,
+ *   not HTTP tests. They exercise `AuthService`, `WorkspaceService`, etc.
+ *   directly against a real (fake-indexeddb) storage layer — no mocks,
+ *   but also no network round-trip.
+ *
+ *   For true no-mock HTTP coverage of the REST surface
+ *   (GET /api/health, POST /api/auth/login, POST /api/workspaces,
+ *   GET /api/workspaces/:id), see `backend_tests/http.api.spec.ts`,
+ *   which boots `createApiServer()` and sends real `fetch()` requests
+ *   through the real router.
  */
 import { DbService } from '../src/app/core/db.service';
 import { PrefsService } from '../src/app/core/prefs.service';

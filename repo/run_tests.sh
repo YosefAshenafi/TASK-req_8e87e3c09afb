@@ -108,7 +108,7 @@ done
 
 # ── Step 1 — Build test images only if missing (or --rebuild) ─────────────────
 separator
-REQUIRED_IMAGES=(repo-unit-test repo-api-test repo-e2e-test repo-prod)
+REQUIRED_IMAGES=(repo-unit-test repo-api-test repo-backend-http-test repo-e2e-test repo-prod)
 MISSING=()
 for img in "${REQUIRED_IMAGES[@]}"; do
   if ! docker image inspect "$img" >/dev/null 2>&1; then
@@ -163,12 +163,15 @@ run_suite "Unit Tests  (Vitest)" "unit-test"
 # ── Step 4 — Run API / integration tests ─────────────────────────────────────
 run_suite "API Tests   (Vitest)" "api-test"
 
-# ── Step 5 — Run E2E tests ────────────────────────────────────────────────────
+# ── Step 5 — Run backend HTTP API tests ───────────────────────────────────────
+run_suite "Backend HTTP API Tests (Vitest)" "backend-http-test"
+
+# ── Step 6 — Run E2E tests ────────────────────────────────────────────────────
 #  prod is already running and healthy — we skip compose's depends_on handling
 #  via --no-deps in run_suite so the container isn't recreated on every run.
 run_suite "E2E Tests   (Playwright)" "e2e-test"
 
-# ── Step 6 — Optionally stop prod ────────────────────────────────────────────
+# ── Step 7 — Optionally stop prod ────────────────────────────────────────────
 separator
 if [ "$KEEP_PROD" = "0" ]; then
   info "Stopping prod service…"

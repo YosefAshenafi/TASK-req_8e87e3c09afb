@@ -9,6 +9,7 @@
     "test": "ng test",
     "test:unit": "vitest run --config unit_tests/vitest.config.ts --coverage",
     "test:api": "vitest run --config API_tests/vitest.config.ts --coverage",
+    "test:backend:http": "vitest run --config backend_tests/vitest.config.ts --coverage",
     "test:api:coverage": "vitest run --config API_tests/vitest.config.ts --coverage",
     "test:e2e": "playwright test --config e2e_tests/playwright.config.ts",
     "lint": "ng lint",
