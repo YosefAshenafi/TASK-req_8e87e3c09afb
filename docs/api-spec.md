@@ -1,17 +1,23 @@
 # SecureRoom Brainstorm Studio — API Specification
 
-> **Context.** SecureRoom is a fully offline browser application with **no network or server APIs**. This document therefore specifies the *internal* contracts that make the app work: Angular service interfaces, the IndexedDB schema, `BroadcastChannel` message protocol, Web Worker / main-thread protocol, Service Worker lifecycle, and the on-disk format for CSV/JSON imports and workspace packages.
+> **Context.** SecureRoom is an offline-first browser application. Its primary surface is a set of **in-browser Angular services** that persist to IndexedDB and coordinate across tabs through `BroadcastChannel` — so most of the app works without any server round-trips.
 >
-> All types are TypeScript. Error behaviour is described per operation.
+> In addition, the project ships a **small HTTP API** (`repo/backend/app.ts`, served as the `secureroom-api` service) that the app uses for authenticated workspace provisioning and health probing. This document specifies **both** contracts:
+>
+> 1. The HTTP API exposed by the Node server (§2).
+> 2. The internal contracts that make the in-browser app work: Angular service interfaces, the IndexedDB schema, `BroadcastChannel` message protocol, Web Worker / main-thread protocol, Service Worker lifecycle, and the on-disk format for CSV/JSON imports and workspace packages (§3–§8).
+>
+> All TypeScript types below refer to the code in `repo/src/app/core/types.ts` unless otherwise noted. Error behaviour is described per operation.
 
 ---
 
 ## 1. Conventions
 
-- **IDs** are `string` UUIDv4 unless otherwise noted.
+- **IDs** are `string` UUIDv4 unless otherwise noted. Workspaces created through the HTTP API are prefixed (`ws-<uuid>`); the seeded workspace id is `ws-seed-1`.
 - **Timestamps** are `number` = milliseconds since Unix epoch (local clock).
 - **Versioning**: mutable entities carry `version: number`, monotonically incremented on each successful write.
-- **Errors**: services throw typed errors; stores surface them via `error$: Observable<AppError>`.
+- **In-process errors**: services throw typed errors; stores surface them via `error$: Observable<AppError>`.
+- **HTTP errors**: the server responds with `{ error: string; detail?: string }` and an appropriate status code (see §2.7).
 
 ```ts
 type AppError =
@@ -25,9 +31,143 @@ type AppError =
 
 ---
 
-## 2. Angular Service APIs
+## 2. HTTP API
 
-### 2.1 `AuthService`
+Source of truth: `repo/backend/app.ts` (exported as `createApiServer()`).
+
+### 2.1 Transport
+
+- **Base URL**: `http://<host>:<port>` — the container binds on port `3000` by default (see `repo/docker-compose.yml`).
+- **Content type**: every request with a body MUST send `content-type: application/json`. Every response advertises `content-type: application/json; charset=utf-8`.
+- **CORS**: not currently configured; requests from the same origin (the Nginx-fronted web app) are expected.
+
+### 2.2 Authentication
+
+- The server maintains an in-memory token table (`AppState.tokens`), keyed by randomly-generated UUID v4.
+- `POST /api/auth/login` issues a fresh token on every successful login; tokens do not expire in-process but are lost on server restart.
+- Authenticated endpoints require:
+  ```
+  Authorization: Bearer <token>
+  ```
+  Any other scheme (e.g. `Token …`) or a token not in the table returns `401 Unauthorized`.
+
+### 2.3 `GET /api/health`
+
+Liveness probe. No auth.
+
+- **200 OK**
+  ```json
+  { "ok": true, "service": "secureroom-api" }
+  ```
+
+### 2.4 `POST /api/auth/login`
+
+Exchange seed credentials for a bearer token.
+
+- **Request**
+  ```json
+  { "username": "admin", "password": "password123" }
+  ```
+- **Seeded accounts** (demo only, in-memory):
+
+  | Username  | Password      | Role              |
+  |-----------|---------------|-------------------|
+  | `admin`   | `password123` | `Admin`           |
+  | `affairs` | `password123` | `Academic Affairs`|
+  | `teacher` | `password123` | `Teacher`         |
+
+- **200 OK**
+  ```json
+  {
+    "token": "<uuid>",
+    "profile": { "username": "admin", "role": "Admin" }
+  }
+  ```
+- **400 Validation** — `username` or `password` missing / not a string / whitespace-only:
+  ```json
+  { "error": "Validation", "detail": "username and password are required" }
+  ```
+- **400 InvalidJson** — body is not valid JSON:
+  ```json
+  { "error": "InvalidJson" }
+  ```
+- **401 BadCredentials** — username unknown or password does not match:
+  ```json
+  { "error": "BadCredentials" }
+  ```
+
+### 2.5 `POST /api/workspaces`
+
+Create a new workspace. The authenticated caller becomes the `ownerUsername`.
+
+- **Auth**: required.
+- **Request**
+  ```json
+  { "name": "HTTP Coverage Workspace" }
+  ```
+- **201 Created**
+  ```json
+  {
+    "id": "ws-<uuid>",
+    "name": "HTTP Coverage Workspace",
+    "ownerUsername": "teacher"
+  }
+  ```
+- **400 Validation** — `name` missing or whitespace-only:
+  ```json
+  { "error": "Validation", "detail": "name is required" }
+  ```
+- **400 InvalidJson** — body is not valid JSON.
+- **401 Unauthorized** — header missing, not `Bearer …`, or token unknown:
+  ```json
+  { "error": "Unauthorized" }
+  ```
+
+### 2.6 `GET /api/workspaces/:id`
+
+Fetch a workspace by id.
+
+- **Auth**: required.
+- **200 OK**
+  ```json
+  { "id": "ws-seed-1", "name": "Seed Workspace", "ownerUsername": "admin" }
+  ```
+- **401 Unauthorized** — header missing, not `Bearer …`, or token unknown.
+- **404 NotFound**
+  ```json
+  { "error": "NotFound", "detail": "workspace ws-<id> not found" }
+  ```
+
+### 2.7 HTTP Error Envelope
+
+Every error response uses the shape:
+
+```ts
+interface HttpErrorBody {
+  error: 'Validation'
+       | 'InvalidJson'
+       | 'BadCredentials'
+       | 'Unauthorized'
+       | 'NotFound';
+  detail?: string;
+}
+```
+
+Anything that does not match a route above returns **`404 { "error": "NotFound" }`** — this includes unknown paths (e.g. `GET /api/unknown`) and unsupported verbs on known paths (e.g. `PUT /api/workspaces`, `POST /api/auth/logout`).
+
+### 2.8 Persistence & Scope
+
+- The server stores workspaces and issued tokens in **process memory only** (`AppState`). Restarts drop every issued token and every non-seeded workspace.
+- Only the four endpoints above are implemented; the rich domain model (canvas, comments, chat, mutual-help, snapshots, KPIs) lives entirely in the browser (IndexedDB + `BroadcastChannel`) and is **not exposed over HTTP**.
+- For strict no-mock HTTP test coverage see `repo/backend_tests/http.api.spec.ts`, which boots `createApiServer()` and exercises every endpoint with real `fetch()` calls.
+
+---
+
+## 3. Angular Service APIs
+
+These contracts are in-process only; they do **not** map to HTTP endpoints.
+
+### 3.1 `AuthService`
 
 ```ts
 interface AuthService {
@@ -59,7 +199,7 @@ type SignInResult =
   | { ok: false; reason: 'LockedOut'; until: number };
 ```
 
-### 2.2 `WorkspaceService`
+### 3.2 `WorkspaceService`
 
 ```ts
 interface WorkspaceService {
@@ -73,7 +213,7 @@ interface WorkspaceService {
 }
 ```
 
-### 2.3 `CanvasService`
+### 3.3 `CanvasService`
 
 ```ts
 interface CanvasService {
@@ -94,7 +234,7 @@ interface CanvasService {
 }
 ```
 
-### 2.4 `CommentService`
+### 3.4 `CommentService`
 
 ```ts
 interface CommentService {
@@ -112,7 +252,7 @@ interface CommentService {
 }
 ```
 
-### 2.5 `ChatService`
+### 3.5 `ChatService`
 
 ```ts
 interface ChatService {
@@ -125,7 +265,7 @@ interface ChatService {
 }
 ```
 
-### 2.6 `PresenceService`
+### 3.6 `PresenceService`
 
 ```ts
 interface PresenceService {
@@ -141,7 +281,7 @@ interface PresenceService {
 }
 ```
 
-### 2.7 `MutualHelpService`
+### 3.7 `MutualHelpService`
 
 ```ts
 interface MutualHelpService {
@@ -159,7 +299,7 @@ interface MutualHelpService {
 }
 ```
 
-### 2.8 `SnapshotService`
+### 3.8 `SnapshotService`
 
 ```ts
 interface SnapshotService {
@@ -174,7 +314,7 @@ interface SnapshotService {
 }
 ```
 
-### 2.9 `TelemetryService`
+### 3.9 `TelemetryService`
 
 ```ts
 interface TelemetryService {
@@ -182,7 +322,7 @@ interface TelemetryService {
 }
 ```
 
-### 2.10 `KpiService`
+### 3.10 `KpiService`
 
 ```ts
 interface KpiService {
@@ -200,7 +340,7 @@ interface KpiSnapshot {
 }
 ```
 
-### 2.11 `PackageService`
+### 3.11 `PackageService`
 
 ```ts
 interface PackageService {
@@ -217,7 +357,7 @@ type ImportOutcome =
   | { ok: false; reason: 'BadManifest' | 'TooLarge' | 'Cancelled' | 'Unsupported'; detail?: string };
 ```
 
-### 2.12 `PrefsService`
+### 3.12 `PrefsService`
 
 ```ts
 interface PrefsService {
@@ -238,7 +378,7 @@ interface Prefs {
 
 ---
 
-## 3. IndexedDB Schema
+## 4. IndexedDB Schema
 
 Database: **`secureroom`** — opened by the `DbService` wrapper around [`idb`](https://github.com/jakearchibald/idb). Schema version is bumped on every store/index change; the `upgrade` callback handles forward migrations only (offline app; no rollback).
 
@@ -260,11 +400,11 @@ All multi-write operations (bulk import, rollback, package import) run inside a 
 
 ---
 
-## 4. BroadcastChannel Protocol
+## 5. BroadcastChannel Protocol
 
 Channel name: **`secureroom-workspace-${workspaceId}`** (one per open workspace).
 
-### 4.1 Envelope
+### 5.1 Envelope
 
 ```ts
 type BroadcastEnvelope =
@@ -319,7 +459,7 @@ interface ActivityMsg extends BaseMsg {
 }
 ```
 
-### 4.2 Rate & Ordering Rules
+### 5.2 Rate & Ordering Rules
 
 | Kind        | Rate                           | Durable store? | Conflict handling                 |
 |-------------|--------------------------------|----------------|-----------------------------------|
@@ -331,17 +471,17 @@ interface ActivityMsg extends BaseMsg {
 | `system`    | immediate                      | Yes            | Append-only.                      |
 | `activity`  | immediate, capped 200 in UI    | Partial        | Append-only.                      |
 
-### 4.3 Peer Liveness
+### 5.3 Peer Liveness
 
 A tab is considered *offline* after missing **2 consecutive** presence heartbeats (≥ 6 s). On offline detection, its cursor is removed and a `system` message is posted: *"Tab #X disconnected."*
 
 ---
 
-## 5. Web Worker Protocol
+## 6. Web Worker Protocol
 
 Worker entrypoint: `/assets/workers/aggregator.worker.js`. All messages are JSON-serialisable.
 
-### 5.1 Main → Worker
+### 6.1 Main → Worker
 
 ```ts
 type MainToWorker =
@@ -352,7 +492,7 @@ type MainToWorker =
   | { kind: 'request-report'; from: string; to: string };
 ```
 
-### 5.2 Worker → Main
+### 6.2 Worker → Main
 
 ```ts
 type WorkerToMain =
@@ -363,7 +503,7 @@ type WorkerToMain =
   | { kind: 'error'; error: AppError };
 ```
 
-### 5.3 Guarantees
+### 6.3 Guarantees
 
 - `event-appended` notifications are idempotent: the worker de-dups by event `id` before aggregation.
 - Daily rollup is performed **once per local date** (guarded by `kv.lastRollupDate`) and marks events as `rolledUp = true` so they are never double-counted.
@@ -371,7 +511,7 @@ type WorkerToMain =
 
 ---
 
-## 6. Service Worker Lifecycle
+## 7. Service Worker Lifecycle
 
 File: `/sw.js`. Registered by `PlatformService` on app bootstrap.
 
@@ -386,9 +526,9 @@ The Web App Manifest declares `display: standalone`, `start_url: "/"`, theme/bac
 
 ---
 
-## 7. File Formats
+## 8. File Formats
 
-### 7.1 CSV / JSON Note Import
+### 8.1 CSV / JSON Note Import
 
 Accepted files:
 
@@ -412,7 +552,7 @@ Rejection reasons (per row, surfaced in the error Table):
 
 Import limit: **1,000 rows** per file. Files exceeding this are rejected outright before mapping.
 
-### 7.2 Workspace Package (`.srbs.zip`)
+### 8.2 Workspace Package (`.srbs.zip`)
 
 ZIP (store or deflate) with the following layout:
 
@@ -459,7 +599,9 @@ Constraints:
 
 ---
 
-## 8. Error Codes (Summary)
+## 9. Error Codes (Summary)
+
+### 9.1 In-process (`AppError`)
 
 | Code              | Raised by                                                  | User-facing behaviour                       |
 |-------------------|-----------------------------------------------------------|---------------------------------------------|
@@ -470,10 +612,21 @@ Constraints:
 | `QuotaExceeded`   | Attachment writes, package export.                        | Toast: "File too large."                    |
 | `NotSupported`    | Feature-detect failures (FS Access, schema version).      | Toast explaining fallback or blocking.      |
 
+### 9.2 HTTP (`{ error, detail? }`)
+
+| `error`           | HTTP status | Raised by                                                 |
+|-------------------|-------------|-----------------------------------------------------------|
+| `Validation`      | 400         | `POST /api/auth/login`, `POST /api/workspaces` (missing / blank fields). |
+| `InvalidJson`     | 400         | Any `POST` with a malformed JSON body.                    |
+| `BadCredentials`  | 401         | `POST /api/auth/login` with unknown user or wrong password. |
+| `Unauthorized`    | 401         | Authenticated endpoints without / with unknown `Bearer` token. |
+| `NotFound`        | 404         | Unknown workspace id, unknown route, or unsupported verb on a known path. |
+
 ---
 
-## 9. Versioning & Migration
+## 10. Versioning & Migration
 
 - **IndexedDB schema** is integer-versioned; `upgrade(db, oldVersion, newVersion)` applies additive transforms only. Any destructive migration runs only after an explicit user confirmation.
 - **Package `schemaVersion`** is declared in each exported `manifest.json`; import supports *current* and one version behind, and refuses to import anything newer.
 - **App version** is embedded at build time and surfaced via `kv.appVersion`; the Service Worker's activation step uses it as its cache-key prefix.
+- **HTTP API version**: the server has no explicit version header today; clients treat the contract in §2 as `v1`. A future breaking change would be introduced under a `/v2/` path rather than mutating the shapes above.
